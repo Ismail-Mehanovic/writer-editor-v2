@@ -81,3 +81,15 @@ real framebuffer console differ from what any desktop terminal reports.
   needs a hands-on test on the Pi before moving to the next.
 - Keep main.py short and readable — this is a learning project, not just
   a deliverable.
+- Built ahead of the stage order, at the user's request: Ctrl+Space
+  toggles editor <-> shell both ways (shellrc binds the same key to
+  "exit"), and a power key (Ctrl+Del; the console sends the same bytes
+  for plain Del) that sleeps/wakes the screen and shuts down for real
+  after SLEEP_SHUTDOWN_MINUTES asleep.
+- A halted Pi 3B+ cannot be powered on from a Bluetooth keyboard. Only
+  shorting GPIO3 to GND (pins 5+6, e.g. a button) or re-plugging power
+  boots it. That is why the power key sleeps instead of shutting down.
+- setup.sh (run once on the Pi with sudo) sets up boot-to-editor
+  (autologin on tty1 + a hook in ~/.profile opening ~/writing/document.txt),
+  passwordless shutdown (/etc/sudoers.d/writer-power), and a udev rule
+  making the backlight writable by the video group.

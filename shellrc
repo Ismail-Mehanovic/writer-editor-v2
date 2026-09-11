@@ -1,0 +1,15 @@
+# Read by the shell that main.py opens with Ctrl+Space
+# (bash --rcfile shellrc). Loads your normal ~/.bashrc, then makes the
+# same key lead back to the editor.
+
+[ -f ~/.bashrc ] && . ~/.bashrc
+
+# At the prompt, the toggle key clears the line and runs "exit", which
+# returns to the editor. main.py passes the key in, in readline's bind
+# syntax, so it is only defined in main.py.
+if [ -n "$WRITER_SHELL_KEY" ]; then
+    bind "\"$WRITER_SHELL_KEY\": \"\\C-e\\C-u exit\\C-m\""
+fi
+
+clear
+echo 'Shell. Ctrl+Space (or typing exit) goes back to the editor.'

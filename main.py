@@ -1,34 +1,44 @@
 #!/usr/bin/env python3
-"""Stage 1 editor plus shell-toggle and shutdown-key features.
+"""Stage 1 editor plus shell toggle and power key.
 
-Type, backspace, Ctrl+Q to quit. Ctrl+Space suspends to a shell and
-Ctrl+Del (double-tap) shuts the device down. Bottom row is a status line.
+Type, backspace, Ctrl+Q to quit. Ctrl+Space toggles between the editor
+and a shell. Ctrl+Del turns the screen off (sleep); pressing it again
+turns it back on. Bottom row is a status line.
 """
 
 import curses
+import glob
 import locale
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 
 QUIT_KEY = '\x11'  # Ctrl+Q
 BACKSPACE_KEYS = (curses.KEY_BACKSPACE, '\x7f', '\x08')
 
 # showkey -a on the Pi: ^@ 0x00 -- Ctrl+Space arrives as a single null byte.
+# SHELL_KEY is how curses reports it; SHELL_KEY_READLINE is the same key in
+# bash's bind syntax, handed to shellrc so the key also leads back from the
+# shell to the editor. To change the key, change both lines.
 SHELL_KEY = '\x00'
+SHELL_KEY_READLINE = r'\C-@'
+SHELL_RC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shellrc')
 
-# showkey -a on the Pi: ^[[3~ (0x1b 0x5b 0x33 0x7e) for Ctrl+Del. Curses'
-# keypad mode (enabled by curses.wrapper) is expected to translate this
-# standard "delete character" escape sequence into KEY_DC in a single
-# get_wch() call. This is the one thing that most needs hardware
-# verification: if the Bluetooth link ever delivers the four bytes as
-# separate reads instead of one grouped key, this constant is the only
-# line that needs to change.
-SHUTDOWN_KEY = curses.KEY_DC
+# showkey -a on the Pi: ^[[3~ for Ctrl+Del, which curses' keypad mode turns
+# into KEY_DC. The console sends the same bytes for plain Del, so Del works
+# as the power key too.
+POWER_KEY = curses.KEY_DC
 
-SHUTDOWN_CONFIRM_MS = 3000
+# A Pi 3B+ that has shut down can't be switched on from a Bluetooth
+# keyboard, so the power key only puts it to sleep: document saved,
+# backlight off, back on with the power key. Asleep this long, it shuts
+# down for real so the battery can't run flat. 0 = shut down right away.
+SLEEP_SHUTDOWN_MINUTES = 120
+SHUTDOWN_COMMAND = ['sudo', '-n', 'shutdown', '-h', 'now']  # -n: never prompt
+BACKLIGHT_GLOB = '/sys/class/backlight/*/brightness'
 
 
 def load_document(filepath):
@@ -61,9 +71,13 @@ def suspend_to_shell(screen):
     curses.def_prog_mode()
     curses.endwin()
     shell = os.environ.get('SHELL', '/bin/bash')
+    command = [shell]
+    if os.path.basename(shell) == 'bash' and os.path.exists(SHELL_RC):
+        command += ['--rcfile', SHELL_RC]
+    env = dict(os.environ, WRITER_SHELL_KEY=SHELL_KEY_READLINE)
     err = None
     try:
-        subprocess.call(shell)
+        subprocess.call(command, env=env)
     except OSError as e:
         err = str(e)
     curses.reset_prog_mode()
@@ -71,21 +85,63 @@ def suspend_to_shell(screen):
     return err
 
 
+def set_backlight(levels):
+    """Writes each level to its brightness file and returns the old levels.
+    Failures are skipped: if the backlight isn't writable (see setup.sh),
+    sleep still blanks the text, the panel just stays lit."""
+    old = {}
+    for path, level in levels.items():
+        try:
+            with open(path) as f:
+                old[path] = f.read().strip()
+            with open(path, 'w') as f:
+                f.write(level)
+        except OSError:
+            pass
+    return old
+
+
+def sleep_until_woken(screen):
+    """Screen off until POWER_KEY is pressed again; other keys are ignored.
+    Returns True if woken, False if SLEEP_SHUTDOWN_MINUTES ran out first."""
+    old_levels = set_backlight({p: '0' for p in glob.glob(BACKLIGHT_GLOB)})
+    screen.erase()
+    curses.curs_set(0)
+    screen.refresh()
+
+    deadline = time.monotonic() + SLEEP_SHUTDOWN_MINUTES * 60
+    woken = False
+    while not woken and time.monotonic() < deadline:
+        screen.timeout(int((deadline - time.monotonic()) * 1000))
+        try:
+            woken = screen.get_wch() == POWER_KEY
+        except curses.error:
+            pass  # timed out: the deadline has passed
+    screen.timeout(-1)
+
+    # Restore even before a shutdown: systemd saves the level at shutdown
+    # and would bring the screen back up nearly black on the next boot.
+    set_backlight(old_levels)
+    curses.curs_set(1)
+    return woken
+
+
 def do_shutdown(screen):
     """Assumes the document has already been saved. Returns (ok, error)."""
     curses.def_prog_mode()
     curses.endwin()
     try:
-        result = subprocess.call(['sudo', 'shutdown', '-h', 'now'])
+        result = subprocess.run(SHUTDOWN_COMMAND, capture_output=True, text=True)
     except OSError as e:
-        curses.reset_prog_mode()
-        screen.refresh()
-        return False, str(e)
-    if result != 0:
-        curses.reset_prog_mode()
-        screen.refresh()
-        return False, f'shutdown exited with code {result}'
-    return True, None
+        error = str(e)
+    else:
+        if result.returncode == 0:
+            return True, None
+        # Typically "a password is required": setup.sh fixes that.
+        error = result.stderr.strip() or f'exit code {result.returncode}'
+    curses.reset_prog_mode()
+    screen.refresh()
+    return False, error
 
 
 def redraw_line(screen, lines, y):
@@ -123,46 +179,13 @@ def main(screen, filepath):
     cy, cx = 0, 0
     dirty = False
     message = ''
-    awaiting_shutdown = False
 
     redraw_all(screen, lines, filepath, dirty, message)
 
     while True:
         screen.move(cy, cx)
         screen.refresh()
-
-        try:
-            key = screen.get_wch()
-        except curses.error:
-            if not awaiting_shutdown:
-                raise
-            awaiting_shutdown = False
-            screen.timeout(-1)
-            message = ''
-            draw_status(screen, filepath, dirty, message)
-            continue
-
-        if awaiting_shutdown:
-            awaiting_shutdown = False
-            screen.timeout(-1)
-            if key == SHUTDOWN_KEY:
-                try:
-                    save_document(lines, filepath)
-                    dirty = False
-                except OSError as e:
-                    message = f'save failed, shutdown cancelled: {e}'
-                    draw_status(screen, filepath, dirty, message)
-                    continue
-                ok, err = do_shutdown(screen)
-                if ok:
-                    return
-                message = f'shutdown failed: {err}'
-                draw_status(screen, filepath, dirty, message)
-                continue
-            else:
-                message = ''
-                draw_status(screen, filepath, dirty, message)
-                # fall through: let this keystroke do its normal job below
+        key = screen.get_wch()
 
         if key == QUIT_KEY:
             return
@@ -178,11 +201,22 @@ def main(screen, filepath):
                 message = f'shell failed: {err}' if err else ''
             redraw_all(screen, lines, filepath, dirty, message)
 
-        elif key == SHUTDOWN_KEY:
-            awaiting_shutdown = True
-            message = 'shut down? press Ctrl+Del again within 3s'
-            draw_status(screen, filepath, dirty, message)
-            screen.timeout(SHUTDOWN_CONFIRM_MS)
+        elif key == POWER_KEY:
+            try:
+                save_document(lines, filepath)
+                dirty = False
+            except OSError as e:
+                message = f'save failed, not sleeping: {e}'
+                draw_status(screen, filepath, dirty, message)
+                continue
+            if SLEEP_SHUTDOWN_MINUTES and sleep_until_woken(screen):
+                message = ''
+            else:
+                ok, err = do_shutdown(screen)
+                if ok:
+                    return
+                message = f'shutdown failed: {err}'
+            redraw_all(screen, lines, filepath, dirty, message)
 
         elif key in BACKSPACE_KEYS:
             if cx > 0:
@@ -229,3 +263,4 @@ if __name__ == '__main__':
         curses.wrapper(main, path)
     except Exception:
         traceback.print_exc()
+        sys.exit(1)
