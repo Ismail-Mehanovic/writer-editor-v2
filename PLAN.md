@@ -6,6 +6,10 @@ Pi first.
 
 ## 1. What the Pi's console can't do, and the workaround
 
+Since 2026-09-12 the editor draws in pixels (render.py, ttf.py), so the
+font, size, cursor and line limits below no longer apply; the key and
+Alt limits still do.
+
 | Wish | Limit on the text console | Workaround |
 |---|---|---|
 | Big title and # headings, as in the screenshot | One font, one size | Title and headings in bright bold white, body softer; `#` marks dimmed; a line under the title |

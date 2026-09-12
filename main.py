@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The writing device's editor: one screen of windows, each showing either
-a document (editor.py) or the list of documents (filelist.py).
+a document (editor.py) or the list of documents (filelist.py), drawn in
+pixels with a smooth font (render.py, style.py).
 
     Ctrl+arrow    open a file list beside the current window
     Alt+arrow     open a new document beside the current window
@@ -10,7 +11,8 @@ a document (editor.py) or the list of documents (filelist.py).
     Ctrl+Q        save everything and quit
 
 Documents are saved 2 seconds after typing stops, and before anything that
-leaves the editor (shell, sleep, quit, closing a window).
+leaves the editor (shell, sleep, quit, closing a window). curses is only
+used to read the keyboard; nothing is drawn with it.
 """
 
 import curses
@@ -22,10 +24,10 @@ import sys
 import time
 import traceback
 
-import cursor_font
 import document
 import keys
 import layout
+import render
 import style
 from editor import Editor
 from filelist import FileList
@@ -37,6 +39,7 @@ FILES_KEYS = {'ctrl-left': 'left', 'ctrl-right': 'right',
 NEW_DOCUMENT_KEYS = {'alt-left': 'left', 'alt-right': 'right',
                      'alt-up': 'up', 'alt-down': 'down'}
 AUTOSAVE_SECONDS = 2
+HINT = 'Ctrl+arrow: files    Alt+arrow: new document    Esc: windows'
 
 # Ctrl+Space arrives as a single null byte (showkey -a: ^@), which keys.py
 # calls 'ctrl-space'. SHELL_KEY_READLINE is the same key in bash's bind
@@ -60,7 +63,8 @@ BACKLIGHT_GLOB = '/sys/class/backlight/*/brightness'
 
 
 def suspend_to_shell(screen):
-    """Returns an error string on failure to launch, or None on success."""
+    """Hands the screen to a shell. Returns an error string or None."""
+    render.console_graphics(False)
     curses.def_prog_mode()
     curses.endwin()
     shell = os.environ.get('SHELL', '/bin/bash')
@@ -74,15 +78,15 @@ def suspend_to_shell(screen):
     except OSError as e:
         err = str(e)
     curses.reset_prog_mode()
-    style.set_palette()  # leaving curses reset the colours to the console's own
     screen.refresh()
+    render.console_graphics(True)
     return err
 
 
 def set_backlight(levels):
     """Writes each level to its brightness file and returns the old levels.
     Failures are skipped: if the backlight isn't writable (see setup.sh),
-    sleep still blanks the text, the panel just stays lit."""
+    sleep still blanks the screen, the panel just stays lit."""
     old = {}
     for path, level in levels.items():
         try:
@@ -95,14 +99,11 @@ def set_backlight(levels):
     return old
 
 
-def sleep_until_woken(screen):
+def sleep_until_woken(screen, canvas):
     """Screen off until POWER_KEY is pressed again; other keys are ignored.
     Returns True if woken, False if SLEEP_SHUTDOWN_MINUTES ran out first."""
     old_levels = set_backlight({p: '0' for p in glob.glob(BACKLIGHT_GLOB)})
-    screen.erase()
-    curses.curs_set(0)
-    screen.refresh()
-
+    canvas.fill(0, 0, canvas.w, canvas.h, (0, 0, 0))
     deadline = time.monotonic() + SLEEP_SHUTDOWN_MINUTES * 60
     woken = False
     while not woken and time.monotonic() < deadline:
@@ -112,7 +113,6 @@ def sleep_until_woken(screen):
         except curses.error:
             pass  # timed out: the deadline has passed
     screen.timeout(-1)
-
     # Restore even before a shutdown: systemd saves the level at shutdown
     # and would bring the screen back up nearly black on the next boot.
     set_backlight(old_levels)
@@ -121,6 +121,7 @@ def sleep_until_woken(screen):
 
 def do_shutdown(screen):
     """Assumes everything is saved. Returns (ok, error)."""
+    render.console_graphics(False)
     curses.def_prog_mode()
     curses.endwin()
     try:
@@ -133,50 +134,17 @@ def do_shutdown(screen):
         # Typically "a password is required": setup.sh fixes that.
         error = result.stderr.strip() or f'exit code {result.returncode}'
     curses.reset_prog_mode()
-    style.set_palette()
     screen.refresh()
+    render.console_graphics(True)
     return False, error
 
 
-def draw_frame(screen, rect, label):
-    """The thin frame select mode puts around the chosen window."""
-    y, x, h, w = rect
-    screen.addnstr(y, x, f'┌─ {label} '.ljust(w - 1, '─') + '┐', w, style.FRAME)
-    for row in range(y + 1, y + h - 1):
-        screen.addstr(row, x, '│', style.FRAME)
-        screen.addstr(row, x + w - 1, '│', style.FRAME)
-    screen.addnstr(y + h - 1, x, '└' + '─' * (w - 2) + '┘', w, style.FRAME)
-
-
-# A line cell's directions (up, down, left, right) and the character for them.
-STEPS = {'u': (-1, 0, 'd'), 'd': (1, 0, 'u'), 'l': (0, -1, 'r'), 'r': (0, 1, 'l')}
-LINE_CHARS = {'ud': '│', 'lr': '─', 'dlr': '┬', 'ulr': '┴', 'udr': '├', 'udl': '┤', 'udlr': '┼'}
-
-
-def draw_lines(screen, lines):
-    """The thin lines between windows (from Layout.place), joined where
-    they meet, so they look like the line under a document's title."""
-    cells = {}
-    for kind, y, x, length in lines:
-        for i in range(length):
-            cells[(y + i, x) if kind == '|' else (y, x + i)] = set('ud' if kind == '|' else 'lr')
-    for (y, x), directions in list(cells.items()):
-        for d in list(directions):
-            dy, dx, back = STEPS[d]
-            if (y + dy, x + dx) in cells:
-                cells[(y + dy, x + dx)].add(back)
-    for (y, x), directions in cells.items():
-        char = LINE_CHARS[''.join(sorted(directions, key='udlr'.index))]
-        screen.addstr(y, x, char, style.LINE)
-
-
 class Writer:
-    def __init__(self, screen, folder):
-        self.screen, self.folder = screen, folder
+    def __init__(self, screen, canvas, folder):
+        self.screen, self.canvas, self.folder = screen, canvas, folder
         self.layout = layout.Layout(self.new_editor())
         self.selecting = False
         self.message = ''
-        self.upright = cursor_font.loaded()
 
     def new_editor(self, path=None):
         return Editor(document.Document(path, folder=self.folder))
@@ -185,8 +153,8 @@ class Writer:
         return [w for w in self.layout.windows() if isinstance(w, Editor)]
 
     def places(self):
-        height, width = self.screen.getmaxyx()
-        return self.layout.place(0, 0, height - 1, width)  # last row: status
+        """Where every window goes: the screen above the status line."""
+        return self.layout.place(0, 0, self.canvas.w, self.canvas.h - style.STATUS_HEIGHT)
 
     # ---- the loop
 
@@ -243,7 +211,7 @@ class Writer:
             return True
         if key == POWER_KEY:
             self.save()
-            if SLEEP_SHUTDOWN_MINUTES and sleep_until_woken(self.screen):
+            if SLEEP_SHUTDOWN_MINUTES and sleep_until_woken(self.screen, self.canvas):
                 return True
             ok, err = do_shutdown(self.screen)
             if ok:
@@ -263,7 +231,7 @@ class Writer:
             path = focus.handle(key)
             if path:
                 self.open(path, focus)
-            return bool(path)
+            return True  # lists are short: always drawn whole
         was_in_title = focus.in_title
         try:
             self.message = focus.handle(key) or ''
@@ -304,48 +272,50 @@ class Writer:
     # ---- drawing
 
     def draw(self, only_focus=False):
+        """Redraws everything, or (only_focus) just what changed in the
+        focused window, then the status line."""
+        canvas = self.canvas
         rects, lines = self.places()
         alone = len(rects) == 1
-        if only_focus:
-            windows = [self.layout.focus]
-        else:
-            self.screen.erase()
-            draw_lines(self.screen, lines)
-            windows = list(rects)
-            for window in windows:
+        if not only_focus:
+            for kind, x, y, length in lines:
+                if kind == '|':
+                    canvas.fill(x, y, 1, length, style.LINE)
+                else:
+                    canvas.fill(x, y, length, 1, style.LINE)
+            for window in rects:
                 if isinstance(window, FileList):
                     window.reload()
-        cursor = None
-        for window in windows:
+        for window in [self.layout.focus] if only_focus else list(rects):
             focused = window is self.layout.focus and not self.selecting
-            cell = window.draw(self.screen, rects[window], focused, alone, self.upright)
-            cursor = cell or cursor
+            window.draw(canvas, rects[window], focused, alone, full=not only_focus)
         if self.selecting:
-            label = 'FILES' if isinstance(self.layout.focus, FileList) else 'DOCUMENT'
-            draw_frame(self.screen, rects[self.layout.focus], label)
-        self.draw_status()
-        if cursor and not self.upright:
-            curses.curs_set(1)
-            self.screen.move(*cursor)
-        else:
-            curses.curs_set(0)
-        self.screen.refresh()
+            x, y, w, h = rects[self.layout.focus]
+            for edge in ((x, y, w, 2), (x, y + h - 2, w, 2), (x, y, 2, h), (x + w - 2, y, 2, h)):
+                canvas.fill(*edge, style.ACCENT)
+        self.draw_status(alone)
 
-    def draw_status(self):
-        height, width = self.screen.getmaxyx()
-        focus = self.layout.focus
+    def draw_status(self, alone):
+        canvas, focus = self.canvas, self.layout.focus
         if self.selecting:
-            text = 'Arrows: pick a window  ·  Backspace: close it  ·  other keys: type'
+            text = 'Arrows: pick a window    Backspace: close it    other keys: back to typing'
         elif self.message:
             text = self.message
         elif isinstance(focus, FileList):
-            text = 'Up/Down: pick a document  ·  Enter: open it  ·  Esc: windows'
+            text = 'Up/Down: pick a document    Enter: open it'
         elif focus.in_title:
             text = 'Type a title, then press Enter.'
         else:
             state = 'editing' if focus.doc.dirty else 'saved'
             text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
-        self.screen.addnstr(height - 1, 0, (' ' + text).ljust(width - 1), width - 1, style.STATUS)
+        top = canvas.h - style.STATUS_HEIGHT
+        margin = (canvas.w - style.PAGE_WIDTH) // 2 + 4 if alone else 16
+        face = style.STATUS_FACE
+        canvas.fill(0, top, canvas.w, style.STATUS_HEIGHT, style.BACKDROP)
+        baseline = canvas.h - 11
+        hint_x = canvas.w - margin - round(face.width(HINT))
+        canvas.text(face, margin, baseline, text, style.LABEL, style.BACKDROP, hint_x - 24)
+        canvas.text(face, hint_x, baseline, HINT, style.LINE, style.BACKDROP)
 
 
 def main(screen, folder):
@@ -354,11 +324,20 @@ def main(screen, folder):
     # the escape sequences itself.
     curses.raw()
     screen.keypad(False)
-    style.init()
-    style.set_palette()
-    screen.bkgd(' ', style.BACKDROP)
+    curses.curs_set(0)
     os.makedirs(folder, exist_ok=True)
-    Writer(screen, folder).run()
+    # WRITER_SCREEN=memory draws into memory instead of the screen (tests),
+    # and WRITER_SCREENSHOT=file.png saves the last picture on the way out.
+    if os.environ.get('WRITER_SCREEN') == 'memory':
+        canvas = render.Canvas(1280, 800)
+    else:
+        canvas = render.Canvas.framebuffer()
+        render.console_graphics(True)
+    try:
+        Writer(screen, canvas, folder).run()
+    finally:
+        if os.environ.get('WRITER_SCREENSHOT'):
+            canvas.png(os.environ['WRITER_SCREENSHOT'])
 
 
 if __name__ == '__main__':
@@ -366,11 +345,13 @@ if __name__ == '__main__':
     folder = sys.argv[1] if len(sys.argv) > 1 else document.WRITING_DIR
     if os.path.isfile(folder):  # an older login hook passed a document
         folder = os.path.dirname(os.path.abspath(folder))
-    style.set_palette()
     try:
         curses.wrapper(main, folder)
     except Exception:
+        render.console_graphics(False)
         traceback.print_exc()
         sys.exit(1)
     finally:
-        style.reset_palette()
+        render.console_graphics(False)
+        sys.stdout.write('\033[2J\033[H')  # let the console redraw its own text
+        sys.stdout.flush()

@@ -1,12 +1,12 @@
 """The screen as a tree of windows.
 
 Every split cuts one window in half, side by side or one above the other,
-with a one-cell line between the halves. The leaves of the tree are the
+with a one-pixel line between the halves. The leaves of the tree are the
 windows themselves (editors and file lists); the layout only knows where
-they are, never what is in them.
+they are, never what is in them. Rectangles are (x, y, width, height).
 """
 
-MIN_WIDTH, MIN_HEIGHT = 16, 6  # a split that would go smaller is refused
+MIN_WIDTH, MIN_HEIGHT = 240, 160  # pixels; a split that would go smaller is refused
 
 
 class Split:
@@ -46,33 +46,33 @@ class Layout:
     def windows(self):
         return _windows(self.root)
 
-    def place(self, y, x, height, width):
-        """({window: (y, x, height, width)}, [separator lines]). A line is
-        ('|', y, x, length) or ('-', y, x, length)."""
+    def place(self, x, y, width, height):
+        """({window: (x, y, width, height)}, [lines between windows]). A line
+        is ('|', x, y, length) going down or ('-', x, y, length) across."""
         rects, lines = {}, []
 
-        def walk(node, y, x, h, w):
+        def walk(node, x, y, w, h):
             if not isinstance(node, Split):
-                rects[node] = (y, x, h, w)
+                rects[node] = (x, y, w, h)
             elif node.side_by_side:
                 left = (w - 1) // 2
-                lines.append(('|', y, x + left, h))
-                walk(node.first, y, x, h, left)
-                walk(node.second, y, x + left + 1, h, w - left - 1)
+                lines.append(('|', x + left, y, h))
+                walk(node.first, x, y, left, h)
+                walk(node.second, x + left + 1, y, w - left - 1, h)
             else:
                 top = (h - 1) // 2
-                lines.append(('-', y + top, x, w))
-                walk(node.first, y, x, top, w)
-                walk(node.second, y + top + 1, x, h - top - 1, w)
+                lines.append(('-', x, y + top, w))
+                walk(node.first, x, y, w, top)
+                walk(node.second, x, y + top + 1, w, h - top - 1)
 
-        walk(self.root, y, x, height, width)
+        walk(self.root, x, y, width, height)
         return rects, lines
 
     def split(self, window, direction, focus_rect):
         """Puts window beside the focused one (direction: 'left', 'right',
         'up' or 'down') and focuses it. False if it wouldn't fit."""
         side_by_side = direction in ('left', 'right')
-        _, _, h, w = focus_rect
+        _, _, w, h = focus_rect
         if (side_by_side and (w - 1) // 2 < MIN_WIDTH
                 or not side_by_side and (h - 1) // 2 < MIN_HEIGHT):
             return False
@@ -101,10 +101,10 @@ class Layout:
 
     def neighbour(self, direction, rects):
         """The window next to the focused one in direction, or None."""
-        y, x, h, w = rects[self.focus]
-        mid_y, mid_x = y + h // 2, x + w // 2
+        x, y, w, h = rects[self.focus]
+        mid_x, mid_y = x + w // 2, y + h // 2
         best = None
-        for window, (wy, wx, wh, ww) in rects.items():
+        for window, (wx, wy, ww, wh) in rects.items():
             beside = wy <= mid_y < wy + wh
             above_below = wx <= mid_x < wx + ww
             if direction == 'left' and beside and wx + ww <= x:

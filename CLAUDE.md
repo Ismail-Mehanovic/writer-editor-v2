@@ -82,7 +82,7 @@ documents are .md files, the console font is 16x32 (80x25).
 - setup.sh (run once on the Pi with sudo) sets up boot-to-editor
   (autologin on tty1 + a hook in ~/.profile opening
   the editor on ~/writing; before each login the login service loads
-  console.keymap and cursor-font.psf as root), the 16x32 console font,
+  console.keymap as root), the 16x32 console font,
   passwordless shutdown (/etc/sudoers.d/writer-power), a udev rule
   making the backlight writable by the video group, and a sysctl
   (kernel.printk = 1 4 1 3) that keeps kernel messages like
@@ -104,11 +104,14 @@ documents are .md files, the console font is 16x32 (80x25).
 - Loading a keymap or font on the console needs root on this kernel, even
   on your own tty (loadkeys: KDSKBMODE: Operation not permitted). So the
   getty@tty1 drop-in does it in ExecStartPre, never the user's login hook.
-- Upright cursor: cursor_font.py makes cursor-font.psf (Terminus 16x32
-  minus expendable scripts, plus barred copies of typed characters at
-  U+E000+). The login service loads it and creates /run/writer-cursor-font;
-  main.py draws barred glyphs only when that marker exists, otherwise it
-  uses the console's flat cursor.
+- The editor draws in pixels, not text: render.py writes the 16-bit
+  framebuffer (/dev/fb0, 1280x800, RGB565) and ttf.py rasterizes the
+  Selawik TTFs in fonts/ (OFL) with anti-aliasing, standard library only.
+  curses only reads keys. The console is put in KD_GRAPHICS mode while
+  the editor runs (back to text for the Ctrl+Space shell). Editors redraw
+  only rows that changed (about 4 ms per keystroke on the Pi). Tests set
+  WRITER_SCREEN=memory (never touch the real screen) and
+  WRITER_SCREENSHOT=file.png to look at the result.
 
 ## Workflow (standing instruction from the user)
 

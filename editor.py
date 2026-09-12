@@ -1,33 +1,20 @@
-"""The editor window: a document's title above its body.
+"""The editor window: a document's title above its body, drawn in pixels.
 
 The body wraps between words and scrolls. Lines starting with '# ', '## '
-or '### ' are headings. A new document starts in the title, and its body
-can't be reached until the title has text. With the whole screen to itself
-the editor is a centred page; beside other windows it fills its window.
+or '### ' are headings, drawn bigger. A new document starts in the title,
+and its body can't be reached until the title has text. With the whole
+screen to itself the editor is a centred page with rounded corners; beside
+other windows it fills its window. Only rows that changed are redrawn.
 """
 
-import curses
-
-import cursor_font
 import document
 import keys
 import style
 
-PAGE_WIDTH = 72     # a lone editor's page, centred on the screen
-PADDING = 3         # page edge to text, on the lone page
-SPLIT_PADDING = 2   # window edge to text, beside other windows
-BODY_TOP = 5        # rows above the body: space, label, title, line, space
 MOVE_KEYS = ('left', 'right', 'up', 'down', 'home', 'end', 'pgup', 'pgdn')
-
-
-def wrap(line, width):
-    """Where each screen row of line starts, breaking between words."""
-    starts = [0]
-    while len(line) - starts[-1] > width:
-        start = starts[-1]
-        space = line.rfind(' ', start, start + width + 1)
-        starts.append(space + 1 if space >= start else start + width)
-    return starts
+LONE_HEADER = (72, 128, 168)   # label baseline, title baseline, line: below the page top
+SPLIT_HEADER = (40, 90, 124)   # the same, beside other windows
+BODY_GAP = 20                  # from the line under the title to the first row
 
 
 def heading_level(line):
@@ -36,16 +23,48 @@ def heading_level(line):
     return marks if 1 <= marks <= 3 and line[marks:marks + 1] == ' ' else 0
 
 
+def row_style(line):
+    """(font, colour, row height) for a line."""
+    return style.ROW_STYLES[heading_level(line)]
+
+
+def wrap(text, face, width):
+    """Where each screen row of text starts, breaking after a space so each
+    row fits width pixels. Spaces may hang past the edge."""
+    starts, x, space = [0], 0.0, None
+    for i, char in enumerate(text):
+        advance = face.advance(char)
+        if char != ' ' and x + advance > width and i > starts[-1]:
+            starts.append(space + 1 if space is not None and space >= starts[-1] else i)
+            x, space = face.width(text[starts[-1]:i]), None
+        x += advance
+        if char == ' ':
+            space = i
+    return starts
+
+
+def index_at(text, start, end, face, x):
+    """The position in text[start:end] nearest to x pixels from start."""
+    pos = 0.0
+    for i in range(start, end):
+        advance = face.advance(text[i])
+        if x < pos + advance / 2:
+            return i
+        pos += advance
+    return end
+
+
 class Editor:
     def __init__(self, doc):
         self.doc = doc
-        self.title = doc.title        # the title as it is being typed
+        self.title = doc.title          # the title as it is being typed
         self.in_title = not doc.title
-        self.tx = len(self.title)     # cursor position in the title
-        self.cy = self.cx = 0         # cursor line and column in the body
-        self.want = 0                 # column within a row that Up/Down aim for
-        self.top = (0, 0)             # first line and row shown
-        self.width, self.rows = 66, 19  # text size, set when drawn
+        self.tx = len(self.title)       # cursor position in the title
+        self.cy = self.cx = 0           # cursor line and position in the body
+        self.want = 0.0                 # the x (pixels) Up and Down aim for
+        self.top = (0, 0)               # first line and row shown
+        self.width, self.body_height = 800, 480  # set when drawn
+        self._frame, self._drawn = None, {}
 
     def words(self):
         return sum(len(line.split()) for line in self.doc.lines)
@@ -113,26 +132,30 @@ class Editor:
 
     # ---- cursor movement
 
-    def _position(self):
-        """The cursor's (row, column) within its line's screen rows."""
-        starts = wrap(self.doc.lines[self.cy], self.width)
-        row = max(i for i, s in enumerate(starts) if s <= self.cx)
-        return row, self.cx - starts[row]
+    def _starts(self, line):
+        text = self.doc.lines[line]
+        return wrap(text, row_style(text)[0], self.width)
 
-    def _row_end(self, starts, row):
-        line = self.doc.lines[self.cy]
-        return starts[row + 1] - 1 if row + 1 < len(starts) else len(line)
+    def _position(self):
+        """The cursor's row within its line, and its x in pixels in that row."""
+        text = self.doc.lines[self.cy]
+        starts = self._starts(self.cy)
+        row = max(i for i, s in enumerate(starts) if s <= self.cx)
+        return row, row_style(text)[0].width(text[starts[row]:self.cx])
+
+    def _row_end(self, line, starts, row):
+        return starts[row + 1] - 1 if row + 1 < len(starts) else len(self.doc.lines[line])
 
     def _move(self, key):
         lines = self.doc.lines
         row, _ = self._position()
-        starts = wrap(lines[self.cy], self.width)
+        starts = self._starts(self.cy)
         if key == 'up' and self.cy == 0 and row == 0:
             self.in_title, self.tx = True, len(self.title)
             return
         if key in ('up', 'down', 'pgup', 'pgdn'):
             step = -1 if key in ('up', 'pgup') else 1
-            for _ in range(self.rows if key in ('pgup', 'pgdn') else 1):
+            for _ in range(max(self.body_height // 40, 1) if key in ('pgup', 'pgdn') else 1):
                 if not self._vertical(step):
                     break
             return  # keep self.want
@@ -148,109 +171,146 @@ class Editor:
         elif key == 'home':
             self.cx = starts[row]
         elif key == 'end':
-            self.cx = self._row_end(starts, row)
+            self.cx = self._row_end(self.cy, starts, row)
         self.want = self._position()[1]
 
     def _vertical(self, step):
         """One screen row up (-1) or down (1). False when there is none."""
         lines = self.doc.lines
         row, _ = self._position()
-        starts = wrap(lines[self.cy], self.width)
+        starts = self._starts(self.cy)
         if step < 0 and row == 0:
             if self.cy == 0:
                 self.cx = 0
                 return False
             self.cy -= 1
-            starts = wrap(lines[self.cy], self.width)
+            starts = self._starts(self.cy)
             row = len(starts) - 1
         elif step > 0 and row == len(starts) - 1:
             if self.cy == len(lines) - 1:
                 self.cx = len(lines[self.cy])
                 return False
             self.cy, row = self.cy + 1, 0
-            starts = wrap(lines[self.cy], self.width)
+            starts = self._starts(self.cy)
         else:
             row += step
-        self.cx = min(starts[row] + self.want, self._row_end(starts, row))
+        text = lines[self.cy]
+        self.cx = index_at(text, starts[row], self._row_end(self.cy, starts, row),
+                           row_style(text)[0], self.want)
         return True
 
-    def _scroll(self):
-        """Moves self.top so the cursor is on screen. Returns the cursor's
-        screen row counted from the top of the body."""
+    # ---- scrolling
+
+    def _rows(self, line, row):
+        """(line, row, starts, height) for each screen row from here on."""
         lines = self.doc.lines
-        row, _ = self._position()
-        line, top_row = self.top
-        if line < len(lines):
-            self.top = (line, min(top_row, len(wrap(lines[line], self.width)) - 1))
-        if (self.cy, row) < self.top:
-            self.top = (self.cy, row)
-        line, top_row = self.top
-        offset = sum(len(wrap(lines[i], self.width)) for i in range(line, self.cy)) - top_row + row
-        while offset >= self.rows:
-            line, top_row = self.top
-            if top_row + 1 < len(wrap(lines[line], self.width)):
-                self.top = (line, top_row + 1)
-            else:
-                self.top = (line + 1, 0)
-            offset -= 1
-        return offset
+        while line < len(lines):
+            starts = self._starts(line)
+            height = row_style(lines[line])[2]
+            for r in range(min(row, len(starts) - 1), len(starts)):
+                yield line, r, starts, height
+            line, row = line + 1, 0
+
+    def _scroll(self):
+        """Moves self.top so the cursor's row is inside the body."""
+        cursor = (self.cy, self._position()[0])
+        if cursor < self.top or self.top[0] >= len(self.doc.lines):
+            self.top = cursor
+        used = 0
+        for line, row, _, height in self._rows(*self.top):
+            used += height
+            if (line, row) >= cursor:
+                break
+        while used > self.body_height and self.top < cursor:
+            line, row, starts, height = next(self._rows(*self.top))
+            used -= height
+            self.top = (line, row + 1) if row + 1 < len(starts) else (line + 1, 0)
 
     # ---- drawing
 
-    def draw(self, screen, rect, focused, alone, upright):
-        """Draws the window in rect. Returns the cursor's screen cell when
-        focused, otherwise None. upright: draw the cursor with a bar glyph."""
-        y, x, h, w = rect
-        pad = SPLIT_PADDING
-        if alone and w > PAGE_WIDTH:
-            style.fill(screen, y, x, h, w, style.BACKDROP)
-            x, w, pad = x + (w - PAGE_WIDTH) // 2, PAGE_WIDTH, PADDING
-        style.fill(screen, y, x, h, w, style.PAGE)
-        left, self.width = x + pad, w - 2 * pad
-        self.rows = max(h - BODY_TOP, 1)
+    def draw(self, canvas, rect, focused, alone, full=False):
+        """Draws the window in rect = (x, y, width, height). Unless full, or
+        the window moved, only what changed since the last call is redrawn."""
+        rx, ry, rw, rh = rect
+        lone = alone and rw > style.PAGE_WIDTH
+        if lone:
+            px, py, pw, ph = (rx + (rw - style.PAGE_WIDTH) // 2, ry + style.PAGE_TOP,
+                              style.PAGE_WIDTH, rh - style.PAGE_TOP)
+            pad, header, inner = style.PADDING, LONE_HEADER, 1
+        else:
+            px, py, pw, ph = rect
+            pad, header, inner = style.SPLIT_PADDING, SPLIT_HEADER, 0
+        left, self.width = px + pad, pw - 2 * pad
+        body_top = py + header[2] + BODY_GAP
+        self.body_height = py + ph - 16 - body_top
 
-        def put(row, col, text, attr):
-            if text:
-                screen.addnstr(row, col, text, x + w - col, attr)
+        if full or self._frame != (rect, lone):
+            self._frame, self._drawn = (rect, lone), {}
+            if lone:
+                canvas.fill(rx, ry, rw, rh, style.BACKDROP)
+                canvas.rounded(px, py, pw, ph, style.RADIUS, style.BORDER, style.BACKDROP)
+                canvas.rounded(px + 1, py + 1, pw - 2, ph - 2, style.RADIUS - 1, style.PAGE, style.BORDER)
+            else:
+                canvas.fill(rx, ry, rw, rh, style.PAGE)
+            canvas.text(style.LABEL_FACE, left, py + header[0], 'DOCUMENT', style.LABEL, style.PAGE)
+            canvas.fill(px + inner, py + header[2], pw - 2 * inner, 1, style.LINE)
 
-        put(y + 1, left, 'DOCUMENT', style.LABEL)
-        shift = max(0, self.tx - self.width + 1)  # a long title scrolls
-        put(y + 2, left, self.title[shift:shift + self.width], style.TITLE)
-        put(y + 3, left, '─' * self.width, style.LINE)
-
-        offset = self._scroll()
-        lines = self.doc.lines
-        line, row = self.top
-        for screen_row in range(y + BODY_TOP, y + BODY_TOP + self.rows):
-            if line >= len(lines):
+        self._draw_title(canvas, left, py + header[1], focused and self.in_title)
+        self._scroll()
+        cursor = None
+        if focused and not self.in_title:
+            row, x = self._position()
+            cursor = (self.cy, row, x)
+        y, shown = body_top, set()
+        for line, row, starts, height in self._rows(*self.top):
+            if y + height > body_top + self.body_height:
                 break
-            text = lines[line]
-            starts = wrap(text, self.width)
+            text = self.doc.lines[line]
             end = starts[row + 1] if row + 1 < len(starts) else len(text)
             level = heading_level(text)
-            if level and row == 0:
-                put(screen_row, left, text[:level], style.LABEL)  # the # marks
-                put(screen_row, left + level, text[level:end], style.TITLE)
-            else:
-                put(screen_row, left, text[starts[row]:end], style.TITLE if level else style.TEXT)
-            line, row = (line, row + 1) if row + 1 < len(starts) else (line + 1, 0)
+            item = (text[starts[row]:end], level, row == 0, height,
+                    cursor[2] if cursor and cursor[:2] == (line, row) else None)
+            if self._drawn.get(y) != item:
+                self._drawn[y] = item
+                self._draw_row(canvas, left, y, item)
+            shown.add(y)
+            y += height
+        for old in [k for k in self._drawn if isinstance(k, int) and k not in shown]:
+            if old >= y:
+                canvas.fill(left - 8, old, self.width + 16, self._drawn[old][3], style.PAGE)
+            del self._drawn[old]
 
-        if not focused:
-            return None
-        if self.in_title:
-            cell = (y + 2, left + self.tx - shift)
-            char = self.title[self.tx:self.tx + 1] or ' '
-            attr = style.TITLE
+    def _draw_title(self, canvas, left, baseline, with_cursor):
+        face = style.TITLE_FACE
+        item = (self.title, self.tx if with_cursor else None, self.width)
+        if self._drawn.get('title') == item:
+            return
+        self._drawn['title'] = item
+        canvas.fill(left - 8, baseline - face.ascent - 6, self.width + 16,
+                    face.ascent + face.descent + 12, style.PAGE)
+        right = left + self.width + 8
+        if self.title:
+            canvas.text(face, left - 2, baseline, self.title, style.TITLE, style.PAGE, right)
         else:
-            cell = (y + BODY_TOP + offset, left + self._position()[1])
-            text = lines[self.cy]
-            char = text[self.cx:self.cx + 1] or ' '
-            level = heading_level(text)
-            attr = style.LABEL if self.cx < level else style.TITLE if level else style.TEXT
-        if upright:
-            barred = cursor_font.with_bar(char)
-            if barred:
-                screen.addstr(*cell, barred, attr)
-            else:
-                screen.addstr(*cell, char, attr | curses.A_REVERSE)
-        return cell
+            canvas.text(face, left - 2, baseline, 'Untitled', style.LINE, style.PAGE, right)
+        if with_cursor:
+            x = left - 2 + face.width(self.title[:self.tx])
+            self._cursor(canvas, min(x, right - 4), baseline, face)
+
+    def _draw_row(self, canvas, left, y, item):
+        segment, level, first, height, cursor_x = item
+        face, colour, _ = style.ROW_STYLES[level]
+        canvas.fill(left - 8, y, self.width + 16, height, style.PAGE)
+        baseline = y + (height + face.ascent - face.descent) // 2
+        right, x = left + self.width + 8, left
+        if level and first:  # a heading's # marks, dimmed
+            x = canvas.text(face, x, baseline, segment[:level + 1], style.LABEL, style.PAGE, right)
+            segment = segment[level + 1:]
+        canvas.text(face, x, baseline, segment, colour, style.PAGE, right)
+        if cursor_x is not None:
+            self._cursor(canvas, min(left + cursor_x, right - 4), baseline, face)
+
+    @staticmethod
+    def _cursor(canvas, x, baseline, face):
+        canvas.fill(round(x), baseline - face.ascent + 2, style.CURSOR_WIDTH,
+                    face.ascent + face.descent - 2, style.TITLE)

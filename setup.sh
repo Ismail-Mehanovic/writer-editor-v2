@@ -14,25 +14,20 @@ REPO=$(cd "$(dirname "$0")" && pwd)
 WRITING_DIR="$USER_HOME/writing"  # the documents; Ctrl+Space's shell starts here
 
 # 1. Log in automatically on the screen (tty1) at boot, no password.
-#    Just before each login, load the editor's key codes (console.keymap)
-#    and the upright-cursor font (cursor-font.psf, made by cursor_font.py).
-#    Both need root, which the login service has, and both are read fresh
-#    from the repo each time. /run/writer-cursor-font tells the editor the
-#    font is on the screen. The '-' means a failure can't stop the login.
+#    Just before each login, load the editor's key codes (console.keymap).
+#    That needs root, which the login service has, and the file is read
+#    fresh from the repo each time. The '-' means a failure can't stop the
+#    login.
 KEYS="loadkeys -q -C /dev/tty1 $REPO/console.keymap"
-FONT="rm -f /run/writer-cursor-font; setfont -C /dev/tty1 $REPO/cursor-font.psf && touch /run/writer-cursor-font"
-sudo -u "$USER_NAME" python3 "$REPO/cursor_font.py" || echo "(no cursor font made: the flat cursor stays)"
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
 [Service]
 ExecStartPre=-/bin/sh -c '$KEYS'
-ExecStartPre=-/bin/sh -c '$FONT'
 ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
 systemctl daemon-reload
-sh -c "$KEYS" || echo "(key codes not loaded)"  # and load both right away
-sh -c "$FONT" || echo "(cursor font not loaded)"
+sh -c "$KEYS" || echo "(key codes not loaded)"  # and right away
 
 # 2. That login opens the editor on a new, empty document. Ctrl+Q (or a
 #    crash) leaves you in a normal shell; typing exit there logs out,
