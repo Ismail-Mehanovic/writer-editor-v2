@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Stage 1 editor plus shell toggle and power key.
+"""Minimal editor with a shell toggle and a power key (stages 1-2).
 
 Type, backspace, Ctrl+Q to quit. Ctrl+Space toggles between the editor
 and a shell. Ctrl+Del turns the screen off (sleep); pressing it again
-turns it back on. Bottom row is a status line.
+turns it back on. Bottom row is a status line. Keys arrive through
+keys.py as names like 'enter' or 'ctrl-del', or as the typed character.
 """
 
 import curses
@@ -16,21 +17,21 @@ import tempfile
 import time
 import traceback
 
-QUIT_KEY = '\x11'  # Ctrl+Q
-BACKSPACE_KEYS = (curses.KEY_BACKSPACE, '\x7f', '\x08')
+import keys
 
-# showkey -a on the Pi: ^@ 0x00 -- Ctrl+Space arrives as a single null byte.
-# SHELL_KEY is how curses reports it; SHELL_KEY_READLINE is the same key in
-# bash's bind syntax, handed to shellrc so the key also leads back from the
-# shell to the editor. To change the key, change both lines.
-SHELL_KEY = '\x00'
+QUIT_KEY = 'ctrl-q'
+
+# Ctrl+Space arrives as a single null byte (showkey -a: ^@), which keys.py
+# calls 'ctrl-space'. SHELL_KEY_READLINE is the same key in bash's bind
+# syntax, handed to shellrc so the key also leads back from the shell to
+# the editor. To change the key, change both lines.
+SHELL_KEY = 'ctrl-space'
 SHELL_KEY_READLINE = r'\C-@'
 SHELL_RC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shellrc')
 
-# showkey -a on the Pi: ^[[3~ for Ctrl+Del, which curses' keypad mode turns
-# into KEY_DC. The console sends the same bytes for plain Del, so Del works
-# as the power key too.
-POWER_KEY = curses.KEY_DC
+# Ctrl+Del. It only differs from plain Del once console.keymap is loaded,
+# which the login hook from setup.sh does.
+POWER_KEY = 'ctrl-del'
 
 # A Pi 3B+ that has shut down can't be switched on from a Bluetooth
 # keyboard, so the power key only puts it to sleep: document saved,
@@ -114,7 +115,7 @@ def sleep_until_woken(screen):
     while not woken and time.monotonic() < deadline:
         screen.timeout(int((deadline - time.monotonic()) * 1000))
         try:
-            woken = screen.get_wch() == POWER_KEY
+            woken = keys.read(screen) == POWER_KEY
         except curses.error:
             pass  # timed out: the deadline has passed
     screen.timeout(-1)
@@ -174,6 +175,11 @@ def redraw_all(screen, lines, filepath, dirty, message):
 
 
 def main(screen, filepath):
+    # Raw mode: Ctrl+C, Ctrl+Z and Ctrl+S reach the editor as keys instead
+    # of killing, freezing or pausing it. Keypad mode off: keys.py decodes
+    # the escape sequences itself.
+    curses.raw()
+    screen.keypad(False)
     curses.curs_set(1)
     lines = load_document(filepath)
     cy, cx = 0, 0
@@ -185,7 +191,7 @@ def main(screen, filepath):
     while True:
         screen.move(cy, cx)
         screen.refresh()
-        key = screen.get_wch()
+        key = keys.read(screen)
 
         if key == QUIT_KEY:
             return
@@ -218,7 +224,7 @@ def main(screen, filepath):
                 message = f'shutdown failed: {err}'
             redraw_all(screen, lines, filepath, dirty, message)
 
-        elif key in BACKSPACE_KEYS:
+        elif key == 'backspace':
             if cx > 0:
                 line = lines[cy]
                 lines[cy] = line[:cx - 1] + line[cx:]
@@ -236,7 +242,7 @@ def main(screen, filepath):
                     dirty = True
                 redraw_all(screen, lines, filepath, dirty, message)
 
-        elif key in ('\n', '\r', curses.KEY_ENTER):
+        elif key == 'enter':
             line = lines[cy]
             lines[cy] = line[:cx]
             lines.insert(cy + 1, line[cx:])
@@ -246,7 +252,7 @@ def main(screen, filepath):
                 dirty = True
             redraw_all(screen, lines, filepath, dirty, message)
 
-        elif isinstance(key, str) and key.isprintable():
+        elif keys.is_text(key):
             line = lines[cy]
             lines[cy] = line[:cx] + key + line[cx:]
             cx += 1

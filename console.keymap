@@ -1,0 +1,26 @@
+# Extra key codes for the editor, loaded on top of the Swedish layout at
+# every login on the screen (tty1), see setup.sh. Out of the box the console
+# sends plain arrow codes for Ctrl+arrows, switches consoles on Alt+Left and
+# Alt+Right, and sends the same code for Ctrl+Del as for Del. These lines
+# give each combination its own xterm-style code, which keys.py names.
+# Keycodes: 103 Up, 108 Down, 106 Right, 105 Left, 111 Delete.
+
+control keycode 103 = F100
+control keycode 108 = F101
+control keycode 106 = F102
+control keycode 105 = F103
+alt     keycode 103 = F104
+alt     keycode 108 = F105
+alt     keycode 106 = F106
+alt     keycode 105 = F107
+control keycode 111 = F108
+
+string F100 = "\033[1;5A"
+string F101 = "\033[1;5B"
+string F102 = "\033[1;5C"
+string F103 = "\033[1;5D"
+string F104 = "\033[1;3A"
+string F105 = "\033[1;3B"
+string F106 = "\033[1;3C"
+string F107 = "\033[1;3D"
+string F108 = "\033[3;5~"

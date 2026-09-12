@@ -23,9 +23,10 @@ ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
 systemctl daemon-reload
 
-# 2. That login opens the editor. Ctrl+Q (or a crash) leaves you in a
-#    normal shell; typing exit there logs out, autologin logs straight
-#    back in, and the editor opens again.
+# 2. That login loads the editor's key codes (console.keymap, read fresh
+#    from the repo every time) and opens the editor. Ctrl+Q (or a crash)
+#    leaves you in a normal shell; typing exit there logs out, autologin
+#    logs straight back in, and the editor opens again.
 PROFILE="$USER_HOME/.profile"
 [ -f "$USER_HOME/.bash_profile" ] && PROFILE="$USER_HOME/.bash_profile"
 touch "$PROFILE"
@@ -35,6 +36,7 @@ cat >> "$PROFILE" <<EOF
 # >>> writer >>>
 # Added by $REPO/setup.sh: the screen's login (tty1) opens the editor.
 if [ "\$(tty)" = /dev/tty1 ]; then
+    loadkeys -q '$REPO/console.keymap'
     cd '$WRITING_DIR' && python3 '$REPO/main.py' '$DOCUMENT'
     echo 'Editor closed. Type exit to go back to it.'
 fi
@@ -66,6 +68,13 @@ cat > /etc/sysctl.d/99-writer-quiet-console.conf <<'EOF'
 kernel.printk = 1 4 1 3
 EOF
 sysctl -q -p /etc/sysctl.d/99-writer-quiet-console.conf
+
+# 6. Big letters: TerminusBold 16x32 turns the 1280x800 screen into exactly
+#    80x25 characters, the size the editor is designed for. It takes effect
+#    at the next boot, so it can't disturb an editor that is open now.
+sed -i -e '/^FONTFACE=/d' -e '/^FONTSIZE=/d' /etc/default/console-setup
+printf 'FONTFACE="TerminusBold"\nFONTSIZE="16x32"\n' >> /etc/default/console-setup
+setupcon --save-only
 
 echo "Done. The editor will open $WRITING_DIR/$DOCUMENT at boot."
 echo "Reboot now to try it:  sudo reboot"

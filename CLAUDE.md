@@ -49,29 +49,24 @@ no file manager.
 Build these one at a time. Do NOT jump ahead. Each stage is tested on the
 actual Pi before moving on, because key codes from a real keyboard on a
 real framebuffer console differ from what any desktop terminal reports.
-
-1. Minimal curses window. Type characters, see them appear, Ctrl+Q quits
-   cleanly. Backspace works. That's all.
-2. Swedish characters verified working.
-3. Word wrap, and a centered text column of about 66 characters with even
-   margins left and right.
-4. Debounced atomic autosave to a file passed as a command-line argument.
-5. Scrolling for documents longer than the visible 25 lines.
-6. Ctrl+Space suspends curses and drops to a shell; exiting the shell
-   returns to the document with text intact. Note: Ctrl+Space sends a null
-   byte and some terminals swallow it, so make the key easy to change.
-7. Keybindings for backlight up/down and clean shutdown
-   (sudo shutdown -h now).
+The stages, and the design they build towards (titles, # headings, split
+windows), are in PLAN.md section 8. Decided: Esc opens select mode,
+documents are .md files, the console font is 16x32 (80x25).
 
 ## Status
 
-- [x] Stage 1: Minimal curses window (main.py)
-- [ ] Stage 2: Swedish characters
-- [ ] Stage 3: Word wrap + centered column
-- [ ] Stage 4: Debounced atomic autosave
-- [ ] Stage 5: Scrolling
-- [ ] Stage 6: Shell suspend
-- [ ] Stage 7: Backlight + shutdown keybindings
+- [x] Stage 1: Minimal editor, plus shell toggle, sleep key, boot to editor
+- [ ] Stage 2: Keyboard foundation (built, waiting for the Pi test)
+- [ ] Stage 3: Cursor
+- [ ] Stage 4: Autosave
+- [ ] Stage 5: Word wrap + centered column
+- [ ] Stage 6: Scrolling
+- [ ] Stage 7: Titles and the look
+- [ ] Stage 8: Headings
+- [ ] Stage 9: Windows: splits
+- [ ] Stage 10: Windows: file list
+- [ ] Stage 11: Windows: select mode
+- [ ] Stage 12: Undo / redo
 
 ## Working notes
 
@@ -83,14 +78,15 @@ real framebuffer console differ from what any desktop terminal reports.
   a deliverable.
 - Built ahead of the stage order, at the user's request: Ctrl+Space
   toggles editor <-> shell both ways (shellrc binds the same key to
-  "exit"), and a power key (Ctrl+Del; the console sends the same bytes
-  for plain Del) that sleeps/wakes the screen and shuts down for real
-  after SLEEP_SHUTDOWN_MINUTES asleep.
+  "exit"), and a power key (Ctrl+Del, told apart from Del by
+  console.keymap since stage 2) that sleeps/wakes the screen and shuts
+  down for real after SLEEP_SHUTDOWN_MINUTES asleep.
 - A halted Pi 3B+ cannot be powered on from a Bluetooth keyboard. Only
   shorting GPIO3 to GND (pins 5+6, e.g. a button) or re-plugging power
   boots it. That is why the power key sleeps instead of shutting down.
 - setup.sh (run once on the Pi with sudo) sets up boot-to-editor
-  (autologin on tty1 + a hook in ~/.profile opening ~/writing/document.txt),
+  (autologin on tty1 + a hook in ~/.profile that loads console.keymap and
+  opens ~/writing/document.txt), the 16x32 console font,
   passwordless shutdown (/etc/sudoers.d/writer-power), a udev rule
   making the backlight writable by the video group, and a sysctl
   (kernel.printk = 1 4 1 3) that keeps kernel messages like
@@ -103,10 +99,10 @@ real framebuffer console differ from what any desktop terminal reports.
 - PLAN.md holds the roadmap (windows, titles, keys) and its stages.
 - Checked on the Pi over SSH (2026-09-12): Raspberry Pi OS on Debian 13
   (trixie), kernel 6.18, Python 3.13.5, bash 5.2, ncurses 6.5. The console
-  font is actually TerminusBold 10x20, which gives 128 columns by 40 rows,
-  not the 16x32 / 80x25 above. The user hasn't chosen yet (PLAN.md
-  decision 3). Both font sizes have light and heavy box lines, arrows, ▸
-  and •.
+  font was TerminusBold 10x20 (128x40); the user chose 16x32 (80x25),
+  which setup.sh now sets. Both font sizes have light and heavy box
+  lines, arrows, ▸ and •. The 'linux' terminfo has no keypad-mode strings
+  and no modified-arrow keys, so keys.py decodes key sequences itself.
 
 ## Workflow (standing instruction from the user)
 

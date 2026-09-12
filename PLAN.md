@@ -1,8 +1,8 @@
 # Plan: from minimal editor to windowed writing app
 
-Status: draft, waiting on three decisions (section 3). Once they're settled,
-the stage list in section 8 replaces the build stages in CLAUDE.md. The
-rule stays the same: one stage at a time, each tested on the Pi first.
+Status: agreed 2026-09-12 (decisions in section 3). Section 8 is the build
+order and CLAUDE.md points to it. One stage at a time, each tested on the
+Pi first.
 
 ## 1. What the Pi's console can't do, and the workaround
 
@@ -11,10 +11,10 @@ rule stays the same: one stage at a time, each tested on the Pi first.
 | Big title and # headings, as in the screenshot | One font, one size | Title and headings in bright bold white, body softer; `#` marks dimmed; a line under the title |
 | The screenshot's colours | 16 colours | Redefine the console palette at startup (navy `#131B2E` background, sampled from the screenshot); reset it on exit |
 | A thin I-beam cursor | Only block or underline cursors | Blinking underline (or block) |
-| Pressing Alt on its own | A modifier alone sends nothing to a terminal | Esc instead, or read the keyboard directly (section 3) |
+| Pressing Alt on its own | A modifier alone sends nothing to a terminal | Esc instead (decided) |
 | Ctrl+arrows, Alt+arrows | Same codes as plain arrows by default; Alt+←/→ even switch to another console | A small keymap loaded at boot gives each combo its own code |
 | Del and Ctrl+Del doing different things | Same code by default (why Del sleeps today) | Same keymap: Del deletes forward, only Ctrl+Del sleeps |
-| Splitting as often as you like | 80×25 characters (128×40 with the smaller font, decision 3) | Minimum window about 20 columns × 6 rows; a smaller split is refused with a message |
+| Splitting as often as you like | 80×25 characters | Minimum window about 20 columns × 6 rows; a smaller split is refused with a message |
 | Frames and symbols | The console font holds 512 glyphs | Checked on the Pi: light and heavy box lines, ← ↑ → ↓, ▸, • and … are all in it, so the select frame can be heavy |
 
 ## 2. Things an editor needs that weren't on the list
@@ -41,21 +41,13 @@ Nice-to-haves, after the core:
 
 ## 3. Decisions
 
-Needs your call:
+Decided on 2026-09-12:
 
-1. **Window-select key.** (a) **Esc**: simple, and it works through the
-   terminal. Recommended to start with. (b) **Tap Left Alt**: only possible
-   by reading the keyboard device directly (`/dev/input`, still stdlib).
-   That needs an extra permission and has to survive Bluetooth reconnects.
-   It can be added on top of (a) later.
-2. **File type.** `.md` (recommended: `#` headings are Markdown, and
-   Obsidian can open the folder as a vault) or `.txt`.
-3. **Screen size.** The Pi currently uses the smaller Terminus 10x20
-   font, which gives 128×40 characters. CLAUDE.md and the mockups assume
-   the 16x32 font: 80×25, with letters 60% bigger. (a) **16x32**: big,
-   comfortable letters, as first specified; setup.sh would switch the
-   font. (b) **10x20**: small letters, but more text on screen and roomier
-   splits. The code adapts to either size, so this is about comfort.
+1. **Esc** opens select mode. (Tapping Alt would need raw keyboard access
+   and Bluetooth-reconnect handling; not worth it.)
+2. Documents are **`.md`** files.
+3. The console font is **Terminus 16x32**: 80×25 characters, big letters.
+   setup.sh sets it.
 
 Defaults unless you say otherwise:
 
@@ -145,7 +137,7 @@ Four windows:
 | ↑ ↓, Enter | file list | Pick, open |
 | Ctrl + ← → ↑ ↓ | anywhere | Split: file list left / right / above / below |
 | Alt + ← → ↑ ↓ | anywhere | Split: new document left / right / above / below |
-| Esc (or Alt tap) | anywhere | Select mode |
+| Esc | anywhere | Select mode |
 | ← → ↑ ↓ | select mode | Move between windows |
 | Backspace | select mode | Close the selected window |
 | Any other key | select mode | Back to typing in the selected window |
@@ -209,11 +201,11 @@ layout work instead of a rewrite.
 
 1. **Done.** Minimal editor. Also done: Ctrl+Space shell toggle, Ctrl+Del
    sleep, boot to editor (setup.sh), quiet console.
-2. **Keyboard foundation.** A keymap from setup.sh gives Ctrl/Alt+arrows
-   and Ctrl+Del their own codes, and stops Alt+←/→ switching consoles. A
-   key decoder. Raw mode, so Ctrl+C/Z/S arrive as ordinary keys.
-   `python3 main.py --keys` shows the name of every key pressed and a line
-   of test glyphs.
+2. **Keyboard foundation.** console.keymap (loaded at every tty1 login)
+   gives Ctrl/Alt+arrows and Ctrl+Del their own codes, and stops Alt+←/→
+   switching consoles. keys.py decodes them. Raw mode, so Ctrl+C/Z/S
+   arrive as ordinary keys. `python3 keys.py` shows the name of every key
+   pressed and a line of test glyphs. setup.sh also sets the 16x32 font.
    *Pi test:* every combo shows the right name; å ä ö appear as
    themselves; Alt+← stays in the editor; box lines and · render.
 3. **Cursor.** Arrows, Home/End, Del; type and delete anywhere.
@@ -250,7 +242,8 @@ layout work instead of a rewrite.
 - Keymap lines look like `control keycode 105 = F100` and
   `string F100 = "\033[1;5D"`, using xterm-style codes (`;5` Ctrl, `;3` Alt).
   Load it after console-setup so the Swedish layout stays intact.
-- `curses.set_escdelay(25)`, so a lone Esc responds at once.
+- Keypad mode is off; keys.py decodes escape sequences itself. After Esc
+  it waits 25 ms for the rest of a sequence, so a lone Esc feels instant.
 - Checked on the Pi (2026-09-12): Ctrl+arrows have no keymap entries
   (they send plain arrows), Alt+←/→ are Decr/Incr_Console, Alt+↑ is
   KeyboardSignal, and Ctrl+Alt+Del is Boot (reboot): don't bind that one.
