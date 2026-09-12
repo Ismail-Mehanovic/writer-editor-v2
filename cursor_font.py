@@ -67,38 +67,32 @@ def make(source=SOURCE, output=OUTPUT):
     if missing:
         sys.exit(f'{source} has no glyph for {missing}')
 
-    # Make room by dropping glyphs that only expendable scripts use.
-    keep = list(range(count))
+    # The barred glyphs take over the slots of glyphs that only expendable
+    # scripts use. Every other glyph keeps its slot: the console fills empty
+    # cells with slot 32 and expects a space there.
+    slots = []
     for low, high in EXPENDABLE:
-        if len(keep) + len(CHARS) <= MAX_GLYPHS:
-            break
-        keep = [i for i in keep
-                if not singles[i] or not all(low <= ord(c) <= high for c in singles[i])]
-    if len(keep) + len(CHARS) > MAX_GLYPHS:
-        sys.exit(f'only room for {MAX_GLYPHS - len(keep)} barred glyphs')
-    # Give any spare room back to dropped glyphs: consoles expect exactly 512.
-    spare = MAX_GLYPHS - len(keep) - len(CHARS)
-    kept = set(keep)
-    keep = sorted(keep + [i for i in range(count) if i not in kept][:spare])
+        slots += [i for i in range(count) if i not in slots and singles[i]
+                  and all(low <= ord(c) <= high for c in singles[i])]
+    if len(slots) < len(CHARS):
+        sys.exit(f'only room for {len(slots)} barred glyphs')
 
-    barred = []
-    for ch in CHARS:
+    glyphs, entries = list(glyphs), list(entries)
+    for i, (ch, slot) in enumerate(zip(CHARS, slots)):
         glyph = bytearray(glyphs[glyph_of[ch]])
         for row in BAR_ROWS:
             glyph[row * 2] |= BAR_BITS  # 2 bytes per 16-pixel row
-        barred.append(bytes(glyph))
+        glyphs[slot], entries[slot] = bytes(glyph), chr(FIRST + i).encode()
 
-    new_glyphs = [glyphs[i] for i in keep] + barred
-    new_entries = [entries[i] for i in keep] + [chr(FIRST + i).encode() for i in range(len(CHARS))]
-    font = (struct.pack('<8I', magic, version, 32, flags, len(new_glyphs), size, height, width)
-            + b''.join(new_glyphs) + b''.join(e + b'\xff' for e in new_entries))
+    font = (struct.pack('<8I', magic, version, 32, flags, count, size, height, width)
+            + b''.join(glyphs) + b''.join(e + b'\xff' for e in entries))
     tmp = output + '.tmp'
     with open(tmp, 'wb') as f:
         f.write(font)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, output)
-    return len(keep), len(barred)
+    return count - len(CHARS), len(CHARS)
 
 
 if __name__ == '__main__':
