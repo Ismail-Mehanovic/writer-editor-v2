@@ -191,12 +191,12 @@ class Canvas:
 
     def png(self, path):
         """Saves the picture as a PNG (for previews and tests)."""
-        rows = []
-        for y in range(self.h):
-            line = bytearray(b'\x00')
-            for (v,) in struct.iter_unpack('<H', self.buf[y * self.stride:y * self.stride + 2 * self.w]):
-                line += bytes(((v >> 11) * 255 // 31, (v >> 5 & 63) * 255 // 63, (v & 31) * 255 // 31))
-            rows.append(bytes(line))
+        rgb = [bytes(((v >> 11) * 255 // 31, (v >> 5 & 63) * 255 // 63, (v & 31) * 255 // 31))
+               for v in range(65536)]  # every 16-bit pixel as its 3 RGB bytes
+        picture = memoryview(self.buf)
+        rows = [b'\x00' + b''.join(map(rgb.__getitem__,
+                                       picture[y * self.stride:y * self.stride + 2 * self.w].cast('H')))
+                for y in range(self.h)]
 
         def chunk(kind, body):
             return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body))
