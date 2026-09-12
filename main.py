@@ -18,6 +18,7 @@ used to read the keyboard; nothing is drawn with it.
 import curses
 import glob
 import locale
+import math
 import os
 import subprocess
 import sys
@@ -39,6 +40,7 @@ FILES_KEYS = {'ctrl-left': 'left', 'ctrl-right': 'right',
 NEW_DOCUMENT_KEYS = {'alt-left': 'left', 'alt-right': 'right',
                      'alt-up': 'up', 'alt-down': 'down'}
 AUTOSAVE_SECONDS = 2
+BLINK_SECONDS = 0.53  # the cursor is on this long, then off this long
 HINT = 'Ctrl+arrow: files    Alt+arrow: new document    Esc: windows'
 
 # Ctrl+Space arrives as a single null byte (showkey -a: ^@), which keys.py
@@ -147,6 +149,7 @@ class Writer:
         self.selecting = False
         self.message = ''
         self._status = None  # what the status line shows now
+        self.blink_at = time.monotonic() + BLINK_SECONDS
 
     def new_editor(self, path=None):
         return Editor(document.Document(path, folder=self.folder))
@@ -164,28 +167,45 @@ class Writer:
         self.draw()
         while True:
             key = self.read_key()
-            if key is None:  # autosaved, or a key with no name
+            if key is None:  # the cursor blinked, a document saved, or no key
                 self.draw(only_focus=True)
                 continue
             self.message = ''
             result = self.handle(key)
             if result == 'quit':
                 return
+            self.wake_cursor()
             self.draw(only_focus=not result)
 
     def read_key(self):
-        """The next key, waiting at most until an autosave is due."""
+        """The next key, waiting at most until an autosave is due or the
+        cursor should blink. Returns None if one of those came first."""
         due = [e.doc.edited_at + AUTOSAVE_SECONDS for e in self.editors()
                if e.doc.dirty and e.doc.path]
+        if self.blinking():
+            due.append(self.blink_at)
         if due:
-            self.screen.timeout(max(0, int((min(due) - time.monotonic()) * 1000)))
+            self.screen.timeout(max(0, math.ceil((min(due) - time.monotonic()) * 1000)))  # never early
         try:
             return keys.read(self.screen)
         except curses.error:
+            if self.blinking() and time.monotonic() >= self.blink_at:
+                self.layout.focus.cursor_on = not self.layout.focus.cursor_on
+                self.blink_at = time.monotonic() + BLINK_SECONDS
             self.save(only_due=True)
             return None
         finally:
             self.screen.timeout(-1)
+
+    def blinking(self):
+        """True while the focused window shows a text cursor."""
+        focus = self.layout.focus
+        return not self.selecting and (isinstance(focus, Editor) or focus.naming is not None)
+
+    def wake_cursor(self):
+        """After a key the cursor shows at once, and blinks again later."""
+        self.layout.focus.cursor_on = True
+        self.blink_at = time.monotonic() + BLINK_SECONDS
 
     def save(self, only_due=False):
         now = time.monotonic()
@@ -195,6 +215,7 @@ class Writer:
                     doc.save()
                 except OSError as e:
                     self.message = f'Could not save "{doc.title}": {e}'
+                    doc.edited_at = now  # try again in a while, not straight away
 
     # ---- keys
 
@@ -340,29 +361,43 @@ class Writer:
         canvas.present()
 
     def draw_status(self, alone, force=False):
+        """The line at the bottom: what is going on, or, for a file list,
+        where it is (its breadcrumbs); the keys that matter on the right."""
         canvas, focus = self.canvas, self.layout.focus
+        crumbs, hint = (), HINT
         if self.selecting:
             text = 'Arrows: pick a window    Backspace: close it    other keys: back to typing'
+        elif isinstance(focus, FileList):
+            text, crumbs, hint = self.message, tuple(focus.crumbs()), focus.status()
         elif self.message:
             text = self.message
-        elif isinstance(focus, FileList):
-            text = focus.status()
         elif focus.in_title:
             text = 'Type a title, then press Enter.'
         else:
             state = 'editing' if focus.doc.dirty else 'saved'
             text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
-        if not force and self._status == (text, alone):
+        if not force and self._status == (text, crumbs, hint, alone):
             return  # unchanged: leave it alone
-        self._status = (text, alone)
-        top = canvas.h - style.STATUS_HEIGHT
+        self._status = (text, crumbs, hint, alone)
+        face, baseline = style.STATUS_FACE, canvas.h - 11
         margin = (canvas.w - style.PAGE_WIDTH) // 2 + 4 if alone else 16
-        face = style.STATUS_FACE
-        canvas.fill(0, top, canvas.w, style.STATUS_HEIGHT, style.BACKDROP)
-        baseline = canvas.h - 11
-        hint_x = canvas.w - margin - round(face.width(HINT))
-        canvas.text(face, margin, baseline, text, style.LABEL, style.BACKDROP, hint_x - 24)
-        canvas.text(face, hint_x, baseline, HINT, style.LINE, style.BACKDROP)
+        hint_x = canvas.w - margin - round(face.width(hint))
+        limit = hint_x - 24
+        canvas.fill(0, canvas.h - style.STATUS_HEIGHT, canvas.w, style.STATUS_HEIGHT, style.BACKDROP)
+        if text or not crumbs:
+            canvas.text(face, margin, baseline, text, style.LABEL, style.BACKDROP, limit)
+        else:
+            parts, gap, x = list(crumbs), '  ›  ', margin
+            while len(parts) > 1 and face.width(gap.join(parts)) > limit - margin:
+                parts = ['…'] + parts[2 if parts[0] == '…' else 1:]
+            for i, part in enumerate(parts):
+                last = i == len(parts) - 1
+                x = canvas.text(face, x, baseline, part, style.TEXT if last else style.LABEL,
+                                style.BACKDROP, limit)
+                if not last:
+                    x = canvas.text(face, x, baseline, gap, style.LINE, style.BACKDROP, limit)
+        canvas.text(face, hint_x, baseline, hint, style.LINE if hint == HINT else style.LABEL,
+                    style.BACKDROP)
 
 
 def main(screen, folder):

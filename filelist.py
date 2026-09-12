@@ -2,8 +2,8 @@
 plainly as possible.
 
 Up and Down pick a row. Enter opens a document (the window becomes its
-editor) or goes into a folder (marked ›); the breadcrumbs under the label
-show where you are, and inside a folder the first row, '‹ Back to ...',
+editor) or goes into a folder (marked ›); the status line shows where
+you are (crumbs()), and inside a folder the first row, '‹ Back to ...',
 leads out. Ctrl+F makes a new folder and Ctrl+D a new, empty document,
 both right here and without opening anything. Tab picks the chosen
 document or folder up to move it: Enter on a folder or on '‹ Back to ...'
@@ -18,7 +18,7 @@ import document
 import keys
 import style
 
-HEADER, CRUMBS, DIVIDER, LIST_TOP, ROW = 40, 92, 124, 144, 44  # as editor.SPLIT_HEADER
+HEADER, DIVIDER, LIST_TOP, ROW = 40, 124, 144, 44  # lines up with editor.SPLIT_HEADER
 NEW_KEYS = {'ctrl-f': 'folder', 'ctrl-d': 'document'}
 
 
@@ -35,6 +35,7 @@ class FileList:
         self.moving = None    # the path picked up with Tab
         self.naming = None    # while a new name is typed: [kind, text so far]
         self.confirm = None   # while asking about a delete: 0 Cancel, 1 Delete
+        self.cursor_on = True  # the name cursor, off for half of every blink
         self.reload()
 
     def reload(self, select=None):
@@ -156,7 +157,6 @@ class FileList:
         right = x + w - pad
         canvas.fill(x, y, w, h, style.PAGE)
         canvas.text(style.LABEL_FACE, x + pad, y + HEADER, 'FILES', style.LABEL, style.PAGE)
-        self._draw_crumbs(canvas, x + pad, y + CRUMBS, right)
         canvas.fill(x, y + DIVIDER, w, 1, style.LINE)
 
         rows, top = max((h - LIST_TOP - 16) // ROW, 1), y + LIST_TOP
@@ -190,23 +190,14 @@ class FileList:
         canvas.rounded(x - 12, row_y, right - x + 24, ROW - 6, 8, style.SELECTED, style.PAGE)
         end = canvas.text(face, x, row_y + 27, f'New {self.naming[0]}:  ', style.LABEL, style.SELECTED, right)
         end = canvas.text(face, end, row_y + 27, self.naming[1], style.TITLE, style.SELECTED, right)
-        canvas.fill(round(end) + 2, row_y + 27 - face.ascent + 2, style.CURSOR_WIDTH,
-                    face.ascent + face.descent - 2, style.TITLE)
+        if self.cursor_on:
+            canvas.fill(round(end) + 2, row_y + 27 - face.ascent + 2, style.CURSOR_WIDTH,
+                        face.ascent + face.descent - 2, style.TITLE)
 
-    def _draw_crumbs(self, canvas, x, baseline, right):
-        """Where this list is: writing › Kapitel › Utkast."""
-        parts = [_title(self.root)]
+    def crumbs(self):
+        """Where this list is, for the status line: ['writing', 'Kapitel']."""
         inside = os.path.relpath(self.folder, self.root)
-        if inside != '.':
-            parts += inside.split(os.sep)
-        face, gap = style.LIST_FACE, '  ›  '
-        while len(parts) > 1 and face.width(gap.join(parts)) > right - x:
-            parts = ['…'] + parts[2 if parts[0] == '…' else 1:]
-        for i, part in enumerate(parts):
-            last = i == len(parts) - 1
-            x = canvas.text(face, x, baseline, part, style.TITLE if last else style.LABEL, style.PAGE, right)
-            if not last:
-                x = canvas.text(face, x, baseline, gap, style.LINE, style.PAGE, right)
+        return [_title(self.root)] + (inside.split(os.sep) if inside != '.' else [])
 
     def _draw_confirm(self, canvas, rect):
         """The card that asks before deleting: Cancel or Delete."""

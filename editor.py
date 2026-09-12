@@ -65,6 +65,7 @@ class Editor:
         self.top = (0, 0)               # first line and row shown
         self.width, self.body_height = 800, 480  # set when drawn
         self._frame, self._drawn = None, {}
+        self.cursor_on = True           # off for half of every blink
 
     def words(self):
         return sum(len(line.split()) for line in self.doc.lines)
@@ -255,10 +256,10 @@ class Editor:
             canvas.text(style.LABEL_FACE, left, py + header[0], 'DOCUMENT', style.LABEL, style.PAGE)
             canvas.fill(px + inner, py + header[2], pw - 2 * inner, 1, style.LINE)
 
-        self._draw_title(canvas, left, py + header[1], focused and self.in_title)
+        self._draw_title(canvas, left, py + header[1], focused and self.in_title and self.cursor_on)
         self._scroll()
         cursor = None
-        if focused and not self.in_title:
+        if focused and not self.in_title and self.cursor_on:
             row, x = self._position()
             cursor = (self.cy, row, x)
         y, shown = body_top, set()
