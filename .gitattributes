@@ -2,3 +2,4 @@
 *.sh    text eol=lf
 shellrc text eol=lf
 *.keymap text eol=lf
+*.ttf   binary
