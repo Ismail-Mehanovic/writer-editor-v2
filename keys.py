@@ -29,6 +29,9 @@ SEQUENCES = {
     '[1;3A': 'alt-up', '[1;3B': 'alt-down',
     '[1;3C': 'alt-right', '[1;3D': 'alt-left',
     '[3;5~': 'ctrl-del',
+    '[1;2A': 'shift-up', '[1;2B': 'shift-down',
+    '[1;2C': 'shift-right', '[1;2D': 'shift-left',
+    '[1;2H': 'shift-home', '[1;2F': 'shift-end',
 }
 
 CONTROL_KEYS = {

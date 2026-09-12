@@ -19,6 +19,7 @@ TITLE = (255, 255, 255)      # titles, headings, the cursor
 SELECTED = (34, 48, 77)      # the chosen document in a file list
 ACCENT = (122, 162, 247)     # the select-mode frame, "New folder"
 RAISED = (26, 37, 62)        # a card over a window (the delete question)
+SELECTION = (44, 70, 118)    # behind selected text
 DANGER = (196, 64, 76)       # the Delete button, when chosen
 
 PAGE_WIDTH = 960             # a lone document is a page this wide, centred

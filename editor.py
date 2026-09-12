@@ -1,7 +1,9 @@
 """The editor window: a document's title above its body, drawn in pixels.
 
 The body wraps between words and scrolls. Lines starting with '# ', '## '
-or '### ' are headings, drawn bigger. A new document starts in the title,
+or '### ' are headings, drawn bigger. Ctrl+A or Shift with the arrows
+selects text; Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, and typing
+replaces a selection. A new document starts in the title,
 and its body can't be reached until the title has text. With the whole
 screen to itself the editor is a centred page with rounded corners; beside
 other windows it fills its window. Only rows that changed are redrawn.
@@ -55,6 +57,8 @@ def index_at(text, start, end, face, x):
 
 
 class Editor:
+    clipboard = ''  # copied text, shared by every editor window
+
     def __init__(self, doc):
         self.doc = doc
         self.title = doc.title          # the title as it is being typed
@@ -66,6 +70,7 @@ class Editor:
         self.width, self.body_height = 800, 480  # set when drawn
         self._frame, self._drawn = None, {}
         self.cursor_on = True           # off for half of every blink
+        self.anchor = None              # (line, column) where a selection began
 
     def words(self):
         return sum(len(line.split()) for line in self.doc.lines)
@@ -77,6 +82,8 @@ class Editor:
         return self._title_key(key) if self.in_title else self._body_key(key)
 
     def _title_key(self, key):
+        if key.startswith('shift-'):
+            key = key[6:]  # nothing is selected in the title
         t, x = self.title, self.tx
         if key in ('enter', 'down'):
             wanted = document.clean_title(t)
@@ -103,10 +110,51 @@ class Editor:
         return None
 
     def _body_key(self, key):
-        lines, y, x = self.doc.lines, self.cy, self.cx
-        if key in MOVE_KEYS:
-            self._move(key)
+        if key == 'ctrl-a':
+            self.anchor = (0, 0)
+            self.cy, self.cx = len(self.doc.lines) - 1, len(self.doc.lines[-1])
             return None
+        if key.startswith('shift-') and key[6:] in MOVE_KEYS:
+            if self.anchor is None:
+                self.anchor = (self.cy, self.cx)
+            self._move(key[6:], extend=True)
+            return None
+        span = self.selection()
+        if key in MOVE_KEYS:
+            self.anchor = None
+            if span and key in ('left', 'right'):  # to the start or end of the selection
+                self.cy, self.cx = span[0] if key == 'left' else span[1]
+                self.want = self._position()[1]
+            else:
+                self._move(key)
+            return None
+        if key in ('ctrl-c', 'ctrl-x'):
+            if not span:
+                return 'Select some text first: Shift+arrows, or Ctrl+A for all of it.'
+            Editor.clipboard = self._text(span)
+            if key == 'ctrl-c':
+                return 'Copied.'
+            self._remove(span)
+        elif key == 'ctrl-v':
+            if not Editor.clipboard:
+                return 'Nothing has been copied yet.'
+            if span:
+                self._remove(span)
+            self._insert(Editor.clipboard)
+        elif span and (key in ('backspace', 'del', 'enter') or keys.is_text(key)):
+            self._remove(span)  # Backspace and Del remove it; anything typed replaces it
+            if key not in ('backspace', 'del'):
+                return self._edit(key)
+        else:
+            self.anchor = None
+            return self._edit(key)
+        self.doc.changed()
+        self.want = self._position()[1]
+        return None
+
+    def _edit(self, key):
+        """Typing, Enter, Backspace and Del with nothing selected."""
+        lines, y, x = self.doc.lines, self.cy, self.cx
         if key == 'backspace' and x > 0:
             lines[y] = lines[y][:x - 1] + lines[y][x:]
             self.cx -= 1
@@ -131,6 +179,51 @@ class Editor:
         self.want = self._position()[1]
         return None
 
+    # ---- selection
+
+    def selection(self):
+        """(start, end) of the selected text as (line, column) pairs, or None."""
+        if self.anchor is None or self.anchor == (self.cy, self.cx):
+            return None
+        return tuple(sorted([self.anchor, (self.cy, self.cx)]))
+
+    def _text(self, span):
+        (first, start), (last, end) = span
+        lines = self.doc.lines
+        if first == last:
+            return lines[first][start:end]
+        return '\n'.join([lines[first][start:]] + lines[first + 1:last] + [lines[last][:end]])
+
+    def _remove(self, span):
+        (first, start), (last, end) = span
+        lines = self.doc.lines
+        lines[first:last + 1] = [lines[first][:start] + lines[last][end:]]
+        self.cy, self.cx, self.anchor = first, start, None
+
+    def _insert(self, text):
+        """Puts text (perhaps several lines) at the cursor."""
+        parts = text.split('\n')
+        line = self.doc.lines[self.cy]
+        before, after = line[:self.cx], line[self.cx:]
+        parts[0], parts[-1] = before + parts[0], parts[-1] + after
+        self.doc.lines[self.cy:self.cy + 1] = parts
+        self.cy += len(parts) - 1
+        self.cx = len(parts[-1]) - len(after)
+
+    def _row_selection(self, span, line, starts, row, end):
+        """What is selected in one screen row: (from, to, line break too) as
+        positions in the row, or None."""
+        (first, start), (last, stop) = span
+        if not first <= line <= last:
+            return None
+        length = len(self.doc.lines[line])
+        a = max(start if line == first else 0, starts[row])
+        b = min(stop if line == last else length, end)
+        line_break = line < last and end == length
+        if a >= b and not line_break:
+            return None
+        return (a - starts[row], max(a, b) - starts[row], line_break)
+
     # ---- cursor movement
 
     def _starts(self, line):
@@ -147,12 +240,12 @@ class Editor:
     def _row_end(self, line, starts, row):
         return starts[row + 1] - 1 if row + 1 < len(starts) else len(self.doc.lines[line])
 
-    def _move(self, key):
+    def _move(self, key, extend=False):
         lines = self.doc.lines
         row, _ = self._position()
         starts = self._starts(self.cy)
-        if key == 'up' and self.cy == 0 and row == 0:
-            self.in_title, self.tx = True, len(self.title)
+        if key == 'up' and self.cy == 0 and row == 0 and not extend:
+            self.in_title, self.tx, self.anchor = True, len(self.title), None
             return
         if key in ('up', 'down', 'pgup', 'pgdn'):
             step = -1 if key in ('up', 'pgup') else 1
@@ -262,6 +355,7 @@ class Editor:
         if focused and not self.in_title and self.cursor_on:
             row, x = self._position()
             cursor = (self.cy, row, x)
+        span = self.selection()
         y, shown = body_top, set()
         for line, row, starts, height in self._rows(*self.top):
             if y + height > body_top + self.body_height:
@@ -270,7 +364,8 @@ class Editor:
             end = starts[row + 1] if row + 1 < len(starts) else len(text)
             level = heading_level(text)
             item = (text[starts[row]:end], level, row == 0, height,
-                    cursor[2] if cursor and cursor[:2] == (line, row) else None)
+                    cursor[2] if cursor and cursor[:2] == (line, row) else None,
+                    self._row_selection(span, line, starts, row, end) if span else None)
             if self._drawn.get(y) != item:
                 self._drawn[y] = item
                 self._draw_row(canvas, left, y, item)
@@ -299,15 +394,26 @@ class Editor:
             self._cursor(canvas, min(x, right - 4), baseline, face)
 
     def _draw_row(self, canvas, left, y, item):
-        segment, level, first, height, cursor_x = item
+        segment, level, first, height, cursor_x, selected = item
         face, colour, _ = style.ROW_STYLES[level]
         canvas.fill(left - 8, y, self.width + 16, height, style.PAGE)
         baseline = y + (height + face.ascent - face.descent) // 2
-        right, x = left + self.width + 8, left
-        if level and first:  # a heading's # marks, dimmed
-            x = canvas.text(face, x, baseline, segment[:level + 1], style.LABEL, style.PAGE, right)
-            segment = segment[level + 1:]
-        canvas.text(face, x, baseline, segment, colour, style.PAGE, right)
+        right = left + self.width + 8
+        marks = level + 1 if level and first else 0  # a heading's # marks, dimmed
+        a, b, line_break = selected or (0, 0, False)
+        x, i = float(left), 0
+        while i < len(segment):  # runs of letters that share a colour and background
+            chosen = a <= i < b
+            j = i + 1
+            while j < len(segment) and (a <= j < b) == chosen and (j < marks) == (i < marks):
+                j += 1
+            run, bg = segment[i:j], style.SELECTION if chosen else style.PAGE
+            if chosen:
+                canvas.fill(round(x), y + 4, round(face.width(run)) + 1, height - 8, bg)
+            x = canvas.text(face, x, baseline, run, style.LABEL if i < marks else colour, bg, right)
+            i = j
+        if line_break:  # the selection goes on past the end of this line
+            canvas.fill(round(x), y + 4, 8, height - 8, style.SELECTION)
         if cursor_x is not None:
             self._cursor(canvas, min(left + cursor_x, right - 4), baseline, face)
 
