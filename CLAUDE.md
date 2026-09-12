@@ -115,6 +115,10 @@ documents are .md files, the console font is 16x32 (80x25).
 - The cursor blinks every 0.53 s (main.py BLINK_SECONDS; the window's
   cursor_on flag); a key shows it at once. Key waits are rounded up so
   a due blink or autosave always fires.
+- Selecting: Ctrl+A, Shift+arrows, Shift+Home/End (editor.anchor);
+  Ctrl+C/X/V with one clipboard shared by all editor windows
+  (Editor.clipboard, in memory only). console.keymap gives
+  Shift+arrows/Home/End xterm-style codes (F109-F114).
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
   (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),
