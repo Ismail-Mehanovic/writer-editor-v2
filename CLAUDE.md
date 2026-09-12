@@ -112,9 +112,12 @@ documents are .md files, the console font is 16x32 (80x25).
   only rows that changed (about 4 ms per keystroke on the Pi). Tests set
   WRITER_SCREEN=memory (never touch the real screen) and
   WRITER_SCREENSHOT=file.png to look at the result.
+- The cursor blinks every 0.53 s (main.py BLINK_SECONDS; the window's
+  cursor_on flag); a key shows it at once. Key waits are rounded up so
+  a due blink or autosave always fires.
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
-  (not opened), breadcrumbs, Tab to move (Enter on a folder or "Back to ..." drops it),
+  (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),
   Backspace asks, then moves the item to ~/writing/.trash (hidden, never
   emptied by the editor). A question or folder name takes every key.
 
