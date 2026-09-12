@@ -125,6 +125,11 @@ documents are .md files, the console font is 16x32 (80x25).
   typed (title_shift). Canvas.clip() keeps drawing inside a window.
 - The file list has no header: rows start at the top, and its place
   (breadcrumbs) is shown in the status line.
+- Final polish (v1): heading # marks show only on the cursor's line;
+  windows not in use are drawn dimmer (TEXT_DIM/TITLE_DIM); status-line
+  key hints show only while a document is empty; scrolling down moves
+  drawn pixels (Canvas.shift, Editor._shift) instead of redrawing, and
+  the word count is cached per Document.version.
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
   (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),

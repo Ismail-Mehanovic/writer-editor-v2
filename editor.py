@@ -1,15 +1,16 @@
 """The editor window: a document's title above its body, drawn in pixels.
 
 The body wraps between words. Lines starting with '# ', '## ' or '### '
-are headings, drawn bigger. Ctrl+A or Shift with the arrows selects text;
+are headings, drawn bigger; their # marks show only on the cursor's line. Ctrl+A or Shift with the arrows selects text;
 Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, and typing replaces a
 selection. A new document starts in the title, and its body can't be
 reached until the title has text; a title too long for its line slides
 sideways as it is typed. The document scrolls as one piece: once the
 writing reaches the bottom, the title and the page's top edge move up out
 of sight as well. With the whole screen to itself the editor is a centred
-page with rounded corners; beside other windows it fills its window. Only
-rows that changed are redrawn.
+page with rounded corners; beside other windows it fills its window, and
+is drawn dimmer while another window is in use. Only rows that changed
+are redrawn, and scrolling down moves what is already drawn.
 """
 
 import document
@@ -88,9 +89,14 @@ class Editor:
         self._frame, self._drawn = None, {}
         self.cursor_on = True           # off for half of every blink
         self.anchor = None              # (line, column) where a selection began
+        self._words = (-1, 0)           # (document version, word count)
+        self._scrolled = 0              # self.scroll when last drawn
 
     def words(self):
-        return sum(len(line.split()) for line in self.doc.lines)
+        """The word count, worked out again only after the text changed."""
+        if self._words[0] != self.doc.version:
+            self._words = (self.doc.version, sum(len(line.split()) for line in self.doc.lines))
+        return self._words[1]
 
     # ---- keys
 
@@ -222,7 +228,8 @@ class Editor:
         parts = text.split('\n')
         line = self.doc.lines[self.cy]
         before, after = line[:self.cx], line[self.cx:]
-        parts[0], parts[-1] = before + parts[0], parts[-1] + after
+        parts[0] = before + parts[0]
+        parts[-1] += after  # the same line as parts[0] when text has no line break
         self.doc.lines[self.cy:self.cy + 1] = parts
         self.cy += len(parts) - 1
         self.cx = len(parts[-1]) - len(after)
@@ -336,9 +343,10 @@ class Editor:
 
     # ---- drawing
 
-    def draw(self, canvas, rect, focused, alone, full=False):
-        """Draws the window in rect = (x, y, width, height). Unless full, or
-        the window moved or scrolled, only what changed is redrawn."""
+    def draw(self, canvas, rect, focused, alone, full=False, active=True):
+        """Draws the window in rect = (x, y, width, height). focused: show the
+        cursor; active: the window in use (others are drawn dimmer). Unless
+        full or the window moved, only what changed is redrawn."""
         rx, ry, rw, rh = rect
         lone = alone and rw > style.PAGE_WIDTH
         if lone:
@@ -352,10 +360,14 @@ class Editor:
         self.body_height = rh - 2 * MARGIN
         self._follow_cursor(rh, body_top)
         top = ry - self.scroll  # where the document's top is on the screen
+        dim = not (active or alone)
+        frame, moved = (rect, lone, dim), self.scroll - self._scrolled
 
         canvas.clip(rect)
-        if full or self._frame != (rect, lone, self.scroll):
-            self._frame, self._drawn = (rect, lone, self.scroll), {}
+        if not full and self._frame == frame and 0 < moved < rh // 2:
+            self._shift(canvas, rect, edge, (px, pw) if lone else None, moved)
+        elif full or self._frame != frame or moved:
+            self._frame, self._drawn = frame, {}
             if lone:
                 canvas.fill(rx, ry, rw, rh, style.BACKDROP)
                 page_y = top + page_top
@@ -366,14 +378,38 @@ class Editor:
                 canvas.fill(rx, ry, rw, rh, style.PAGE)
             canvas.text(style.LABEL_FACE, left, top + page_top + header[0], 'DOCUMENT', style.LABEL, style.PAGE)
             canvas.fill(px + edge, top + page_top + header[2], pw - 2 * edge, 1, style.LINE)
+        self._scrolled = self.scroll
         canvas.clip((rx, ry, rw, rh - edge))  # the lone page's bottom edge stays put
         try:
-            self._draw_title(canvas, left, top + page_top + header[1], focused and self.in_title and self.cursor_on)
-            self._draw_rows(canvas, left, top + body_top, ry, ry + rh, focused)
+            self._draw_title(canvas, left, top + page_top + header[1],
+                             focused and self.in_title and self.cursor_on, dim)
+            self._draw_rows(canvas, left, top + body_top, ry, ry + rh - edge, focused, dim)
         finally:
             canvas.clip(None)
 
-    def _draw_title(self, canvas, left, baseline, with_cursor):
+    def _shift(self, canvas, rect, edge, page, moved):
+        """Scrolling down: moves what is on screen up by `moved` pixels and
+        clears the strip that opens at the bottom, so only rows coming into
+        view need drawing. page: the lone page's (x, width); its rounded
+        bottom corners stay where they are."""
+        rx, ry, rw, rh = rect
+        bottom = ry + rh - edge
+        limit = bottom - style.RADIUS if page else bottom  # moved part ends here
+        canvas.shift(rx, ry, rw, limit - ry, moved)
+        drawn = {}
+        for key, item in self._drawn.items():
+            if key == 'title':
+                drawn[key] = item[:3] + (item[3] - moved,) + item[4:]
+            elif key + item[3] <= limit and key - moved + item[3] > ry:
+                drawn[key - moved] = item  # was whole before, and still shows
+        self._drawn = drawn
+        if page:
+            canvas.fill(page[0] + style.RADIUS, limit - moved, page[1] - 2 * style.RADIUS,
+                        bottom - limit + moved, style.PAGE)
+        else:
+            canvas.fill(rx, limit - moved, rw, moved, style.PAGE)
+
+    def _draw_title(self, canvas, left, baseline, with_cursor, dim):
         face = style.TITLE_FACE
         room = self.width + 4
         cursor_x = face.width(self.title[:self.tx])
@@ -383,19 +419,20 @@ class Editor:
             self.title_shift = cursor_x - room + 12
         elif cursor_x < self.title_shift:
             self.title_shift = max(0.0, cursor_x - 60)
-        item = (self.title, self.tx if with_cursor else None, self.width, baseline, self.title_shift)
+        item = (self.title, self.tx if with_cursor else None, self.width, baseline, self.title_shift, dim)
         if self._drawn.get('title') == item:
             return
         self._drawn['title'] = item
         canvas.fill(left - 8, baseline - face.ascent - 6, self.width + 16,
                     face.ascent + face.descent + 12, style.PAGE)
         start, end = left - 2, left + self.width + 6
-        text, colour = (self.title, style.TITLE) if self.title else ('Untitled', style.LINE)
+        text, colour = ((self.title, style.TITLE_DIM if dim else style.TITLE) if self.title
+                        else ('Untitled', style.LINE))
         canvas.text(face, start - self.title_shift, baseline, text, colour, style.PAGE, end, start)
         if with_cursor:
             self._cursor(canvas, start + cursor_x - self.title_shift, baseline, face)
 
-    def _draw_rows(self, canvas, left, first_y, view_top, view_bottom, focused):
+    def _draw_rows(self, canvas, left, first_y, view_top, view_bottom, focused, dim):
         """The body rows that are on screen; each is redrawn only if it changed."""
         lines, span = self.doc.lines, self.selection()
         cursor = None
@@ -416,7 +453,8 @@ class Editor:
                     end = starts[row + 1] if row + 1 < len(starts) else len(text)
                     item = (text[start:end], level, row == 0, height,
                             cursor[2] if cursor and cursor[:2] == (line, row) else None,
-                            self._row_selection(span, line, starts, row, end) if span else None)
+                            self._row_selection(span, line, starts, row, end) if span else None,
+                            focused and line == self.cy, dim)
                     if self._drawn.get(y) != item:
                         self._drawn[y] = item
                         self._draw_row(canvas, left, y, item)
@@ -428,14 +466,16 @@ class Editor:
             del self._drawn[old]
 
     def _draw_row(self, canvas, left, y, item):
-        segment, level, first, height, cursor_x, selected = item
+        segment, level, first, height, cursor_x, selected, show_marks, dim = item
         face, colour, _ = style.ROW_STYLES[level]
+        if dim:
+            colour = style.TITLE_DIM if level else style.TEXT_DIM
         canvas.fill(left - 8, y, self.width + 16, height, style.PAGE)
         baseline = y + (height + face.ascent - face.descent) // 2
         right = left + self.width + 8
-        marks = level + 1 if level and first else 0  # a heading's # marks, dimmed
+        marks = level + 1 if level and first else 0  # a heading's # marks: dim, or hidden
         a, b, line_break = selected or (0, 0, False)
-        x, i = float(left), 0
+        x, i = float(left), 0 if show_marks else marks
         while i < len(segment):  # runs of letters that share a colour and background
             chosen = a <= i < b
             j = i + 1

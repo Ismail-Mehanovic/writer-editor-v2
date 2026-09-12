@@ -128,6 +128,17 @@ class Canvas:
             self.buf[start:start + len(row)] = row
         self._changed.append((y0, y1))
 
+    def shift(self, x, y, w, h, dy):
+        """Moves the pixels of a rectangle up by dy rows (for scrolling)."""
+        x0, x1 = max(x, 0), min(x + w, self.w)
+        y0, y1 = max(y, 0), min(y + h, self.h)
+        size = 2 * (x1 - x0)
+        for row in range(y0, y1 - dy):
+            source = (row + dy) * self.stride + 2 * x0
+            target = row * self.stride + 2 * x0
+            self.buf[target:target + size] = self.buf[source:source + size]
+        self._changed.append((y0, y1))
+
     def rounded(self, x, y, w, h, radius, color, outside):
         """A rectangle with softly rounded corners, drawn over outside."""
         self.fill(x, y + radius, w, h - 2 * radius, color)

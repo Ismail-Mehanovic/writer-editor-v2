@@ -352,7 +352,8 @@ class Writer:
                     window.reload()
         for window in [self.layout.focus] if only_focus else list(rects):
             focused = window is self.layout.focus and not self.selecting
-            window.draw(canvas, rects[window], focused, alone, full=not only_focus)
+            window.draw(canvas, rects[window], focused, alone, full=not only_focus,
+                        active=window is self.layout.focus)
         if self.selecting:
             x, y, w, h = rects[self.layout.focus]
             for edge in ((x, y, w, 2), (x, y + h - 2, w, 2), (x, y, 2, h), (x + w - 2, y, 2, h)):
@@ -364,18 +365,21 @@ class Writer:
         """The line at the bottom: what is going on, or, for a file list,
         where it is (its breadcrumbs); the keys that matter on the right."""
         canvas, focus = self.canvas, self.layout.focus
-        crumbs, hint = (), HINT
+        crumbs, hint = (), ''
         if self.selecting:
             text = 'Arrows: pick a window    Backspace: close it    other keys: back to typing'
         elif isinstance(focus, FileList):
             text, crumbs, hint = self.message, tuple(focus.crumbs()), focus.status()
-        elif self.message:
-            text = self.message
-        elif focus.in_title:
-            text = 'Type a title, then press Enter.'
         else:
-            state = 'editing' if focus.doc.dirty else 'saved'
-            text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
+            if not any(focus.doc.lines):
+                hint = HINT  # the keys show until something is written
+            if self.message:
+                text = self.message
+            elif focus.in_title:
+                text = 'Type a title, then press Enter.'
+            else:
+                state = 'editing' if focus.doc.dirty else 'saved'
+                text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
         if not force and self._status == (text, crumbs, hint, alone):
             return  # unchanged: leave it alone
         self._status = (text, crumbs, hint, alone)

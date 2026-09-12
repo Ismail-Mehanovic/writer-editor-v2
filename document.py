@@ -144,12 +144,13 @@ class Document:
             with open(path, encoding='utf-8') as f:
                 self.lines = f.read().split('\n')
         self.dirty = False
+        self.version = 0  # goes up with every change
         self.edited_at = 0.0  # when the latest change was made (for autosave)
 
     def changed(self):
         """Call after every edit of lines; autosave uses edited_at."""
-        if not self.dirty:
-            self.dirty = True
+        self.dirty = True
+        self.version += 1
         self.edited_at = time.monotonic()
 
     def save(self):

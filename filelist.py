@@ -150,7 +150,7 @@ class FileList:
 
     # ---- drawing
 
-    def draw(self, canvas, rect, focused, alone=False, full=True):
+    def draw(self, canvas, rect, focused, alone=False, full=True, active=True):
         """Draws the whole list in rect (it is short, so always all of it)."""
         x, y, w, h = rect
         pad, face = style.SPLIT_PADDING, style.LIST_FACE
