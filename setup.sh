@@ -59,5 +59,13 @@ udevadm control --reload
 udevadm trigger --subsystem-match=backlight --action=add
 usermod -aG video "$USER_NAME"
 
+# 5. Keep kernel messages such as "Undervoltage detected!" off the screen,
+#    where they print over the editor. They are still logged (run dmesg in
+#    the Ctrl+Space shell to read them); only a kernel panic still shows.
+cat > /etc/sysctl.d/99-writer-quiet-console.conf <<'EOF'
+kernel.printk = 1 4 1 3
+EOF
+sysctl -q -p /etc/sysctl.d/99-writer-quiet-console.conf
+
 echo "Done. The editor will open $WRITING_DIR/$DOCUMENT at boot."
 echo "Reboot now to try it:  sudo reboot"

@@ -91,5 +91,25 @@ real framebuffer console differ from what any desktop terminal reports.
   boots it. That is why the power key sleeps instead of shutting down.
 - setup.sh (run once on the Pi with sudo) sets up boot-to-editor
   (autologin on tty1 + a hook in ~/.profile opening ~/writing/document.txt),
-  passwordless shutdown (/etc/sudoers.d/writer-power), and a udev rule
-  making the backlight writable by the video group.
+  passwordless shutdown (/etc/sudoers.d/writer-power), a udev rule
+  making the backlight writable by the video group, and a sysctl
+  (kernel.printk = 1 4 1 3) that keeps kernel messages like
+  "Undervoltage detected!" from printing over the editor.
+- Power is a plain USB power bank: no data line, so no battery percentage
+  or low-battery signal is readable. Under-voltage is not a usable proxy
+  (banks hold 5 V until they cut out; the warnings come from load spikes).
+  A charge display would need hardware, e.g. a battery board with a
+  fuel-gauge chip on I2C.
+- PLAN.md holds the agreed roadmap (windows, titles, keys) and its stages.
+
+## Workflow (standing instruction from the user)
+
+- After every change: commit and push to the working branch without
+  asking.
+- Then, if the Pi is on, deploy: `ssh writer@writer.local`, then
+  `cd ~/writer-editor-v2 && git pull`. The Pi's clone tracks the working
+  branch. Use SSH key login only; never put the Pi's password in this repo.
+- Deploying doesn't restart the running editor (that could lose unsaved
+  text). New code takes effect at the next boot, or after Ctrl+Q + exit.
+  When setup.sh changes, the user has to run `sudo sh setup.sh` on the Pi,
+  because it needs their password.
