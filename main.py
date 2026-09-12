@@ -379,7 +379,8 @@ class Writer:
                 text = 'Type a title, then press Enter.'
             else:
                 state = 'editing' if focus.doc.dirty else 'saved'
-                text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
+                count = focus.words()
+                text = f'{focus.title}  ·  {state}  ·  {count} word' + ('' if count == 1 else 's')
         if not force and self._status == (text, crumbs, hint, alone):
             return  # unchanged: leave it alone
         self._status = (text, crumbs, hint, alone)
