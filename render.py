@@ -5,9 +5,10 @@ writes pixels to the framebuffer (/dev/fb0: 1280x800, 16 bits per pixel)
 instead, with smooth letters from ttf.py. Everything is drawn in a hidden
 copy of the screen first; present() then copies only the pixel rows that
 changed to the real screen, so it never shows a half-drawn line (drawing
-straight onto the screen made it flicker). Nothing is read back from the
-screen: everything is drawn onto a known background colour, which is how
-the soft edges of letters and rounded corners are worked out.
+straight onto the screen made it flicker). clip() keeps drawing inside one
+window. Nothing is read back from the screen: everything is drawn onto a
+known background colour, which is how the soft edges of letters and
+rounded corners are worked out.
 """
 
 import math
@@ -69,6 +70,7 @@ class Canvas:
         self.stride = stride or width * 2
         self.buf = bytearray(self.stride * height)
         self.screen = screen
+        self._clip = (0, 0, width, height)  # x0, y0, x1, y1
         self._changed = []  # (first row, row after the last) of what changed
         self._blits, self._palettes = {}, {}
 
@@ -87,6 +89,14 @@ class Canvas:
         stride = int(read('stride'))
         fd = os.open(device, os.O_RDWR)
         return cls(width, height, stride, mmap.mmap(fd, stride * height))
+
+    def clip(self, rect=None):
+        """Keeps drawing inside rect = (x, y, width, height); None: anywhere."""
+        if rect is None:
+            self._clip = (0, 0, self.w, self.h)
+        else:
+            x, y, w, h = rect
+            self._clip = (max(x, 0), max(y, 0), min(x + w, self.w), min(y + h, self.h))
 
     def present(self):
         """Copies the rows that changed since the last call to the screen,
@@ -107,8 +117,9 @@ class Canvas:
             self.screen[start:end] = picture[start:end]
 
     def fill(self, x, y, w, h, color):
-        x0, y0 = max(x, 0), max(y, 0)
-        x1, y1 = min(x + w, self.w), min(y + h, self.h)
+        cx0, cy0, cx1, cy1 = self._clip
+        x0, y0 = max(x, cx0), max(y, cy0)
+        x1, y1 = min(x + w, cx1), min(y + h, cy1)
         if x1 <= x0 or y1 <= y0:
             return
         row = pack(color) * (x1 - x0)
@@ -131,25 +142,29 @@ class Canvas:
                     self.fill(x + full - 1, row, 1, 1, edge)
                     self.fill(x + w - full, row, 1, 1, edge)
 
-    def text(self, face, x, baseline, text, fg, bg, right=None):
+    def text(self, face, x, baseline, text, fg, bg, right=None, left=None):
         """Draws text on an area already painted bg, starting at x with its
-        baseline at y = baseline, cut off at x = right. Returns the end x."""
-        right = self.w if right is None else min(right, self.w)
+        baseline at y = baseline, cut off outside x = left..right (and the
+        clip). Returns the x after the text."""
+        cx0, cy0, cx1, cy1 = self._clip
+        right = cx1 if right is None else min(right, cx1)
+        left = cx0 if left is None else max(left, cx0)
         pen = float(x)
         top_row, bottom_row = self.h, 0
         for char in text:
-            left, top, rows = self._glyph(face, char, fg, bg)
-            gx, gy = round(pen) + left, baseline - top
-            if rows and gx >= 0:
-                top_row, bottom_row = min(top_row, gy), max(bottom_row, gy + len(rows))
-                for i, row in enumerate(rows):
-                    if 0 <= gy + i < self.h:
-                        row = row[:max(0, 2 * (right - gx))]
-                        start = (gy + i) * self.stride + 2 * gx
-                        self.buf[start:start + len(row)] = row
+            bearing, top, rows = self._glyph(face, char, fg, bg)
+            gx, gy = round(pen) + bearing, baseline - top
+            skip, keep = max(0, left - gx), right - gx  # pixels cut off left, kept up to right
+            first, last = max(gy, cy0), min(gy + len(rows), cy1)
+            if keep > skip and last > first:
+                for row_y in range(first, last):
+                    part = rows[row_y - gy][2 * skip:2 * keep]
+                    start = row_y * self.stride + 2 * (gx + skip)
+                    self.buf[start:start + len(part)] = part
+                top_row, bottom_row = min(top_row, first), max(bottom_row, last)
             pen += face.advance(char)
         if bottom_row > top_row:
-            self._changed.append((max(top_row, 0), min(bottom_row, self.h)))
+            self._changed.append((top_row, bottom_row))
         return pen
 
     def _glyph(self, face, char, fg, bg):
@@ -158,9 +173,9 @@ class Canvas:
             if (fg, bg) not in self._palettes:
                 self._palettes[fg, bg] = [pack(blend(bg, fg, a)) for a in range(256)]
             palette = self._palettes[fg, bg]
-            left, top, w, h, coverage = face.glyph(char)
+            bearing, top, w, h, coverage = face.glyph(char)
             rows = [b''.join(palette[a] for a in coverage[r * w:(r + 1) * w]) for r in range(h)]
-            self._blits[key] = (left, top, rows)
+            self._blits[key] = (bearing, top, rows)
         return self._blits[key]
 
     def png(self, path):

@@ -18,7 +18,7 @@ import document
 import keys
 import style
 
-HEADER, DIVIDER, LIST_TOP, ROW = 40, 124, 144, 44  # lines up with editor.SPLIT_HEADER
+LIST_TOP, ROW = 16, 44  # the first row's top, and each row's height
 NEW_KEYS = {'ctrl-f': 'folder', 'ctrl-d': 'document'}
 
 
@@ -156,8 +156,6 @@ class FileList:
         pad, face = style.SPLIT_PADDING, style.LIST_FACE
         right = x + w - pad
         canvas.fill(x, y, w, h, style.PAGE)
-        canvas.text(style.LABEL_FACE, x + pad, y + HEADER, 'FILES', style.LABEL, style.PAGE)
-        canvas.fill(x, y + DIVIDER, w, 1, style.LINE)
 
         rows, top = max((h - LIST_TOP - 16) // ROW, 1), y + LIST_TOP
         if self.naming is not None:  # the name being typed gets its own row
