@@ -1,10 +1,13 @@
 """Draws on the Pi's screen pixel by pixel.
 
 Text characters would limit the editor to one blocky pixel font, so this
-writes pixels straight into the framebuffer (/dev/fb0: 1280x800, 16 bits
-per pixel) instead, with smooth letters from ttf.py. Nothing is read back
-from the screen: everything is drawn onto a known background colour, which
-is how the soft edges of letters and rounded corners are worked out.
+writes pixels to the framebuffer (/dev/fb0: 1280x800, 16 bits per pixel)
+instead, with smooth letters from ttf.py. Everything is drawn in a hidden
+copy of the screen first; present() then copies only the pixel rows that
+changed to the real screen, so it never shows a half-drawn line (drawing
+straight onto the screen made it flicker). Nothing is read back from the
+screen: everything is drawn onto a known background colour, which is how
+the soft edges of letters and rounded corners are worked out.
 """
 
 import math
@@ -58,12 +61,15 @@ class Face:
 
 
 class Canvas:
-    """A screen-sized picture in the framebuffer's pixel format."""
+    """A screen-sized picture in the framebuffer's pixel format. screen is
+    the framebuffer's memory; without one (tests) present() does nothing."""
 
-    def __init__(self, width, height, buffer=None, stride=None):
+    def __init__(self, width, height, stride=None, screen=None):
         self.w, self.h = width, height
         self.stride = stride or width * 2
-        self.buf = buffer if buffer is not None else bytearray(self.stride * height)
+        self.buf = bytearray(self.stride * height)
+        self.screen = screen
+        self._changed = []  # (first row, row after the last) of what changed
         self._blits, self._palettes = {}, {}
 
     @classmethod
@@ -80,7 +86,25 @@ class Canvas:
         width, height = map(int, read('virtual_size').split(','))
         stride = int(read('stride'))
         fd = os.open(device, os.O_RDWR)
-        return cls(width, height, mmap.mmap(fd, stride * height), stride)
+        return cls(width, height, stride, mmap.mmap(fd, stride * height))
+
+    def present(self):
+        """Copies the rows that changed since the last call to the screen,
+        each band of rows in one go."""
+        bands = sorted(self._changed)
+        self._changed = []
+        if self.screen is None:
+            return
+        merged = []
+        for top, bottom in bands:
+            if merged and top <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], bottom)
+            elif bottom > top:
+                merged.append([top, bottom])
+        picture = memoryview(self.buf)
+        for top, bottom in merged:
+            start, end = top * self.stride, bottom * self.stride
+            self.screen[start:end] = picture[start:end]
 
     def fill(self, x, y, w, h, color):
         x0, y0 = max(x, 0), max(y, 0)
@@ -91,6 +115,7 @@ class Canvas:
         for r in range(y0, y1):
             start = r * self.stride + 2 * x0
             self.buf[start:start + len(row)] = row
+        self._changed.append((y0, y1))
 
     def rounded(self, x, y, w, h, radius, color, outside):
         """A rectangle with softly rounded corners, drawn over outside."""
@@ -111,16 +136,20 @@ class Canvas:
         baseline at y = baseline, cut off at x = right. Returns the end x."""
         right = self.w if right is None else min(right, self.w)
         pen = float(x)
+        top_row, bottom_row = self.h, 0
         for char in text:
             left, top, rows = self._glyph(face, char, fg, bg)
-            gx = round(pen) + left
-            for i, row in enumerate(rows):
-                gy = baseline - top + i
-                if 0 <= gy < self.h and gx >= 0:
-                    row = row[:max(0, 2 * (right - gx))]
-                    start = gy * self.stride + 2 * gx
-                    self.buf[start:start + len(row)] = row
+            gx, gy = round(pen) + left, baseline - top
+            if rows and gx >= 0:
+                top_row, bottom_row = min(top_row, gy), max(bottom_row, gy + len(rows))
+                for i, row in enumerate(rows):
+                    if 0 <= gy + i < self.h:
+                        row = row[:max(0, 2 * (right - gx))]
+                        start = (gy + i) * self.stride + 2 * gx
+                        self.buf[start:start + len(row)] = row
             pen += face.advance(char)
+        if bottom_row > top_row:
+            self._changed.append((max(top_row, 0), min(bottom_row, self.h)))
         return pen
 
     def _glyph(self, face, char, fg, bg):

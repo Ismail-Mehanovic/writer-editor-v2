@@ -104,6 +104,7 @@ def sleep_until_woken(screen, canvas):
     Returns True if woken, False if SLEEP_SHUTDOWN_MINUTES ran out first."""
     old_levels = set_backlight({p: '0' for p in glob.glob(BACKLIGHT_GLOB)})
     canvas.fill(0, 0, canvas.w, canvas.h, (0, 0, 0))
+    canvas.present()
     deadline = time.monotonic() + SLEEP_SHUTDOWN_MINUTES * 60
     woken = False
     while not woken and time.monotonic() < deadline:
@@ -145,6 +146,7 @@ class Writer:
         self.layout = layout.Layout(self.new_editor())
         self.selecting = False
         self.message = ''
+        self._status = None  # what the status line shows now
 
     def new_editor(self, path=None):
         return Editor(document.Document(path, folder=self.folder))
@@ -273,7 +275,8 @@ class Writer:
 
     def draw(self, only_focus=False):
         """Redraws everything, or (only_focus) just what changed in the
-        focused window, then the status line."""
+        focused window, then the status line. Everything is drawn out of
+        sight first; present() puts the finished rows on the screen."""
         canvas = self.canvas
         rects, lines = self.places()
         alone = len(rects) == 1
@@ -293,9 +296,10 @@ class Writer:
             x, y, w, h = rects[self.layout.focus]
             for edge in ((x, y, w, 2), (x, y + h - 2, w, 2), (x, y, 2, h), (x + w - 2, y, 2, h)):
                 canvas.fill(*edge, style.ACCENT)
-        self.draw_status(alone)
+        self.draw_status(alone, force=not only_focus)
+        canvas.present()
 
-    def draw_status(self, alone):
+    def draw_status(self, alone, force=False):
         canvas, focus = self.canvas, self.layout.focus
         if self.selecting:
             text = 'Arrows: pick a window    Backspace: close it    other keys: back to typing'
@@ -308,6 +312,9 @@ class Writer:
         else:
             state = 'editing' if focus.doc.dirty else 'saved'
             text = f'{focus.title}  ·  {state}  ·  {focus.words()} words'
+        if not force and self._status == (text, alone):
+            return  # unchanged: leave it alone
+        self._status = (text, alone)
         top = canvas.h - style.STATUS_HEIGHT
         margin = (canvas.w - style.PAGE_WIDTH) // 2 + 4 if alone else 16
         face = style.STATUS_FACE
