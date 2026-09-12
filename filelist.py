@@ -1,13 +1,15 @@
-"""The file list window: the folders and documents in one folder.
+"""The file list window: the folders and documents in one folder, as
+plainly as possible.
 
 Up and Down pick a row. Enter opens a document (the window becomes its
-editor) or goes into a folder; the breadcrumbs under the label show where
-you are. The first row makes a new folder; inside a folder the next one,
-'Back to ...', leads out. Tab picks the chosen document or folder up to
-move it: Enter on a folder or on 'Back to ...' puts it there, Right and
-Left go into and out of folders without putting it down, and Tab again
-cancels. Backspace asks before deleting; deleted things go to the hidden
-.trash folder, so they can still be fished out from the shell.
+editor) or goes into a folder (marked ›); the breadcrumbs under the label
+show where you are, and inside a folder the first row, '‹ Back to ...',
+leads out. Ctrl+F makes a new folder and Ctrl+D a new, empty document,
+both right here and without opening anything. Tab picks the chosen
+document or folder up to move it: Enter on a folder or on '‹ Back to ...'
+puts it there, Right and Left go into and out of folders on the way, and
+Tab again cancels. Backspace asks before deleting; deleted things go to
+the hidden .trash folder, so they can still be fished out from the shell.
 """
 
 import os
@@ -17,7 +19,7 @@ import keys
 import style
 
 HEADER, CRUMBS, DIVIDER, LIST_TOP, ROW = 40, 92, 124, 144, 44  # as editor.SPLIT_HEADER
-ICON = 34  # names start this far right of the padding, after the icons
+NEW_KEYS = {'ctrl-f': 'folder', 'ctrl-d': 'document'}
 
 
 def _title(path):
@@ -31,7 +33,7 @@ class FileList:
         self.folder = folder or root
         self.rows, self.selected = [], 0
         self.moving = None    # the path picked up with Tab
-        self.naming = None    # a new folder's name while it is typed
+        self.naming = None    # while a new name is typed: [kind, text so far]
         self.confirm = None   # while asking about a delete: 0 Cancel, 1 Delete
         self.reload()
 
@@ -41,17 +43,18 @@ class FileList:
         if not os.path.isdir(self.folder):
             self.folder = self.root
         keep = select or (self.rows[self.selected][2] if self.rows else None)
-        self.rows = [('new', 'New folder', None)]
+        self.rows = []
         if self.folder != self.root:
             parent = os.path.dirname(self.folder)
             self.rows.append(('back', _title(parent), parent))
         self.rows += [('folder', n, p) for n, p in document.list_folders(self.folder)]
         self.rows += [('document', t, p) for t, p in document.list_documents(self.folder)]
         paths = [row[2] for row in self.rows]
-        self.selected = paths.index(keep) if keep in paths else min(self.selected, len(self.rows) - 1)
+        self.selected = (paths.index(keep) if keep in paths
+                         else max(0, min(self.selected, len(self.rows) - 1)))
 
     def modal(self):
-        """True while a question or a folder name is open: it takes every key."""
+        """True while a question or a new name is open: it takes every key."""
         return self.confirm is not None or self.naming is not None
 
     # ---- keys
@@ -63,6 +66,11 @@ class FileList:
             return self._confirm_key(key)
         if self.naming is not None:
             return self._name_key(key)
+        if key in NEW_KEYS and not self.moving:
+            self.naming = [NEW_KEYS[key], '']
+            return None
+        if not self.rows:
+            return None
         kind, _, path = self.rows[self.selected]
         if key == 'up':
             self.selected = max(self.selected - 1, 0)
@@ -76,8 +84,6 @@ class FileList:
             self.moving = None if self.moving else path if kind in ('folder', 'document') else None
         elif key == 'enter' and self.moving and kind in ('folder', 'back'):
             return self._drop(path)
-        elif key == 'enter' and kind == 'new':
-            self.naming = ''
         elif key == 'enter' and kind in ('folder', 'back'):
             self._go(path, came_from=self.folder if kind == 'back' else None)
         elif key == 'enter' and kind == 'document' and not self.moving:
@@ -115,16 +121,19 @@ class FileList:
         return None
 
     def _name_key(self, key):
+        kind, text = self.naming
         if key == 'enter':
-            name, self.naming = document.clean_title(self.naming), None
+            self.naming = None
+            name = document.clean_title(text)
             if name:
-                self.reload(select=document.make_folder(self.folder, name))
+                make = document.make_folder if kind == 'folder' else document.create_document
+                self.reload(select=make(self.folder, name))
         elif key == 'backspace':
-            self.naming = self.naming[:-1]
+            self.naming[1] = text[:-1]
         elif keys.is_text(key):
-            self.naming += key
+            self.naming[1] = text + key
         else:
-            self.naming = None  # any other key: no new folder
+            self.naming = None  # any other key: nothing is made
         return None
 
     def status(self):
@@ -132,11 +141,11 @@ class FileList:
         if self.confirm is not None:
             return 'Right: choose Delete, then Enter    any other key: keep it'
         if self.naming is not None:
-            return 'Type the new folder\'s name, then press Enter.'
+            return f'Type the new {self.naming[0]}\'s name, then press Enter.'
         if self.moving:
             return (f'Moving "{_title(self.moving)}": pick a folder and press Enter'
                     '    Right/Left: in and out of folders    Tab: cancel')
-        return 'Enter: open    Tab: move    Backspace: delete'
+        return 'Enter: open   Tab: move   Backspace: delete   Ctrl+F: new folder   Ctrl+D: new document'
 
     # ---- drawing
 
@@ -150,31 +159,39 @@ class FileList:
         self._draw_crumbs(canvas, x + pad, y + CRUMBS, right)
         canvas.fill(x, y + DIVIDER, w, 1, style.LINE)
 
-        rows = max((h - LIST_TOP - 16) // ROW, 1)
+        rows, top = max((h - LIST_TOP - 16) // ROW, 1), y + LIST_TOP
+        if self.naming is not None:  # the name being typed gets its own row
+            self._draw_name(canvas, x + pad, top, right)
+            rows, top = max(rows - 1, 1), top + ROW
+        elif not self.rows:
+            canvas.text(face, x + pad, top + 27, 'Nothing here yet.    Ctrl+D: new document',
+                        style.LABEL, style.PAGE, right)
         first = max(0, self.selected - rows + 1)
         for i, (kind, name, path) in enumerate(self.rows[first:first + rows]):
-            row_y = y + LIST_TOP + i * ROW
-            chosen = first + i == self.selected
+            row_y = top + i * ROW
+            chosen = first + i == self.selected and self.naming is None
             bg = style.SELECTED if chosen and focused else style.PAGE
             if bg != style.PAGE:
                 canvas.rounded(x + pad - 12, row_y, w - 2 * pad + 24, ROW - 6, 8, bg, style.PAGE)
-            baseline, middle = row_y + 27, row_y + (ROW - 6) // 2
-            colour = style.TITLE if chosen else style.TEXT
-            label = name
-            if kind == 'new':
-                label, colour = (f'New folder:  {self.naming}', style.TITLE) if self.naming is not None \
-                    else (name, style.ACCENT)
-            elif kind == 'back':
-                label, colour = f'Back to {name}', style.LABEL
-            if path is not None and path == self.moving:
+            label, colour = name, style.TITLE if chosen else style.TEXT
+            if kind == 'back':
+                label, colour = f'‹   Back to {name}', style.LABEL
+            if path == self.moving:
                 label, colour = f'{name}  (moving)', style.LABEL
-            self._draw_icon(canvas, kind, x + pad, middle, baseline, bg)
-            end = canvas.text(face, x + pad + ICON, baseline, label, colour, bg, right)
-            if kind == 'new' and self.naming is not None:
-                canvas.fill(round(end) + 2, baseline - face.ascent + 2, style.CURSOR_WIDTH,
-                            face.ascent + face.descent - 2, style.TITLE)
+            canvas.text(face, x + pad, row_y + 27, label, colour, bg, right - 24)
+            if kind == 'folder':
+                canvas.text(face, right - 10, row_y + 27, '›', style.LABEL, bg)
         if self.confirm is not None:
             self._draw_confirm(canvas, rect)
+
+    def _draw_name(self, canvas, x, row_y, right):
+        """The row where a new folder's or document's name is typed."""
+        face = style.LIST_FACE
+        canvas.rounded(x - 12, row_y, right - x + 24, ROW - 6, 8, style.SELECTED, style.PAGE)
+        end = canvas.text(face, x, row_y + 27, f'New {self.naming[0]}:  ', style.LABEL, style.SELECTED, right)
+        end = canvas.text(face, end, row_y + 27, self.naming[1], style.TITLE, style.SELECTED, right)
+        canvas.fill(round(end) + 2, row_y + 27 - face.ascent + 2, style.CURSOR_WIDTH,
+                    face.ascent + face.descent - 2, style.TITLE)
 
     def _draw_crumbs(self, canvas, x, baseline, right):
         """Where this list is: writing › Kapitel › Utkast."""
@@ -190,19 +207,6 @@ class FileList:
             x = canvas.text(face, x, baseline, part, style.TITLE if last else style.LABEL, style.PAGE, right)
             if not last:
                 x = canvas.text(face, x, baseline, gap, style.LINE, style.PAGE, right)
-
-    @staticmethod
-    def _draw_icon(canvas, kind, x, middle, baseline, bg):
-        if kind == 'folder':
-            canvas.fill(x, middle - 8, 9, 3, style.LABEL)
-            canvas.fill(x, middle - 5, 20, 14, style.LABEL)
-        elif kind == 'document':
-            canvas.fill(x + 3, middle - 9, 14, 18, style.LABEL)
-            canvas.fill(x + 5, middle - 7, 10, 14, bg)
-        else:
-            mark = '+' if kind == 'new' else '‹'
-            colour = style.ACCENT if kind == 'new' else style.LABEL
-            canvas.text(style.LIST_FACE, x + 3, baseline, mark, colour, bg)
 
     def _draw_confirm(self, canvas, rect):
         """The card that asks before deleting: Cancel or Delete."""

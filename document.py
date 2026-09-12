@@ -63,6 +63,14 @@ def make_folder(parent, name):
     return path
 
 
+def create_document(folder, title):
+    """Creates an empty document in folder (' (2)' etc. if the title is
+    taken) and returns its path."""
+    path = os.path.join(folder, free_title(clean_title(title), folder) + EXTENSION)
+    write_atomic(path, '')
+    return path
+
+
 def move(path, destination):
     """Moves a document or folder into destination, adding ' (2)' etc. if
     its name is taken there. Returns its new path."""
