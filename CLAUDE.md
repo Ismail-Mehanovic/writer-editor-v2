@@ -100,7 +100,13 @@ real framebuffer console differ from what any desktop terminal reports.
   (banks hold 5 V until they cut out; the warnings come from load spikes).
   A charge display would need hardware, e.g. a battery board with a
   fuel-gauge chip on I2C.
-- PLAN.md holds the agreed roadmap (windows, titles, keys) and its stages.
+- PLAN.md holds the roadmap (windows, titles, keys) and its stages.
+- Checked on the Pi over SSH (2026-09-12): Raspberry Pi OS on Debian 13
+  (trixie), kernel 6.18, Python 3.13.5, bash 5.2, ncurses 6.5. The console
+  font is actually TerminusBold 10x20, which gives 128 columns by 40 rows,
+  not the 16x32 / 80x25 above. The user hasn't chosen yet (PLAN.md
+  decision 3). Both font sizes have light and heavy box lines, arrows, ▸
+  and •.
 
 ## Workflow (standing instruction from the user)
 

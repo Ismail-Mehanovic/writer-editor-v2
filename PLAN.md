@@ -1,6 +1,6 @@
 # Plan: from minimal editor to windowed writing app
 
-Status: draft, waiting on two decisions (section 3). Once they're settled,
+Status: draft, waiting on three decisions (section 3). Once they're settled,
 the stage list in section 8 replaces the build stages in CLAUDE.md. The
 rule stays the same: one stage at a time, each tested on the Pi first.
 
@@ -14,8 +14,8 @@ rule stays the same: one stage at a time, each tested on the Pi first.
 | Pressing Alt on its own | A modifier alone sends nothing to a terminal | Esc instead, or read the keyboard directly (section 3) |
 | Ctrl+arrows, Alt+arrows | Same codes as plain arrows by default; Alt+←/→ even switch to another console | A small keymap loaded at boot gives each combo its own code |
 | Del and Ctrl+Del doing different things | Same code by default (why Del sleeps today) | Same keymap: Del deletes forward, only Ctrl+Del sleeps |
-| Splitting as often as you like | 80×25 characters | Minimum window about 20 columns × 6 rows; a smaller split is refused with a message |
-| Fancy symbols | The console font holds ~512 glyphs | Light box-drawing lines only; glyphs checked on the Pi in stage 2 |
+| Splitting as often as you like | 80×25 characters (128×40 with the smaller font, decision 3) | Minimum window about 20 columns × 6 rows; a smaller split is refused with a message |
+| Frames and symbols | The console font holds 512 glyphs | Checked on the Pi: light and heavy box lines, ← ↑ → ↓, ▸, • and … are all in it, so the select frame can be heavy |
 
 ## 2. Things an editor needs that weren't on the list
 
@@ -50,6 +50,12 @@ Needs your call:
    It can be added on top of (a) later.
 2. **File type.** `.md` (recommended: `#` headings are Markdown, and
    Obsidian can open the folder as a vault) or `.txt`.
+3. **Screen size.** The Pi currently uses the smaller Terminus 10x20
+   font, which gives 128×40 characters. CLAUDE.md and the mockups assume
+   the 16x32 font: 80×25, with letters 60% bigger. (a) **16x32**: big,
+   comfortable letters, as first specified; setup.sh would switch the
+   font. (b) **10x20**: small letters, but more text on screen and roomier
+   splits. The code adapts to either size, so this is about comfort.
 
 Defaults unless you say otherwise:
 
@@ -69,7 +75,8 @@ Defaults unless you say otherwise:
 
 ## 4. How it will look
 
-Exact to the character (80 columns). Heights are shortened.
+Exact to the character at 80 columns (the 16x32 font). Heights are
+shortened.
 
 Default view, one window:
 
@@ -101,12 +108,12 @@ After Ctrl+←, a file list on the left:
 Select mode, left window selected:
 
 ```text
-┌─ FILES ──────────────────────────────┐ DOCUMENT
-│ > This is the title                  │ This is the title
-│   Chapter one                        │ ──────────────────────────────────────
-│   Letter to Anna                     │ This is the actual document, now in a
-│                                      │ narrower column.
-└──────────────────────────────────────┘
+┏━ FILES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ DOCUMENT
+┃ > This is the title                  ┃ This is the title
+┃   Chapter one                        ┃ ──────────────────────────────────────
+┃   Letter to Anna                     ┃ This is the actual document, now in a
+┃                                      ┃ narrower column.
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  arrows: pick window  ·  Backspace: close  ·  other key: type
 ```
 
@@ -244,3 +251,7 @@ layout work instead of a rewrite.
   `string F100 = "\033[1;5D"`, using xterm-style codes (`;5` Ctrl, `;3` Alt).
   Load it after console-setup so the Swedish layout stays intact.
 - `curses.set_escdelay(25)`, so a lone Esc responds at once.
+- Checked on the Pi (2026-09-12): Ctrl+arrows have no keymap entries
+  (they send plain arrows), Alt+←/→ are Decr/Incr_Console, Alt+↑ is
+  KeyboardSignal, and Ctrl+Alt+Del is Boot (reboot): don't bind that one.
+- Pi software: Debian 13, Python 3.13.5, bash 5.2, ncurses 6.5.
