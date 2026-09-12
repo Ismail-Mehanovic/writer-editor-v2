@@ -119,6 +119,12 @@ documents are .md files, the console font is 16x32 (80x25).
   Ctrl+C/X/V with one clipboard shared by all editor windows
   (Editor.clipboard, in memory only). console.keymap gives
   Shift+arrows/Home/End xterm-style codes (F109-F114).
+- A document scrolls as one piece (Editor.scroll, pixels): label, title,
+  divider and the lone page's top edge leave with the text; line wraps
+  are remembered (editor.wrapped). Long titles slide sideways while
+  typed (title_shift). Canvas.clip() keeps drawing inside a window.
+- The file list has no header: rows start at the top, and its place
+  (breadcrumbs) is shown in the status line.
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
   (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),
