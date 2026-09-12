@@ -74,6 +74,7 @@ def suspend_to_shell(screen):
     except OSError as e:
         err = str(e)
     curses.reset_prog_mode()
+    style.set_palette()  # leaving curses reset the colours to the console's own
     screen.refresh()
     return err
 
@@ -132,19 +133,41 @@ def do_shutdown(screen):
         # Typically "a password is required": setup.sh fixes that.
         error = result.stderr.strip() or f'exit code {result.returncode}'
     curses.reset_prog_mode()
+    style.set_palette()
     screen.refresh()
     return False, error
 
 
 def draw_frame(screen, rect, label):
-    """The frame select mode puts around the chosen window."""
+    """The thin frame select mode puts around the chosen window."""
     y, x, h, w = rect
-    top = f'┏━ {label} '.ljust(w - 1, '━') + '┓'
-    screen.addnstr(y, x, top, w, style.FRAME)
+    screen.addnstr(y, x, f'┌─ {label} '.ljust(w - 1, '─') + '┐', w, style.FRAME)
     for row in range(y + 1, y + h - 1):
-        screen.addstr(row, x, '┃', style.FRAME)
-        screen.addstr(row, x + w - 1, '┃', style.FRAME)
-    screen.addnstr(y + h - 1, x, '┗' + '━' * (w - 2) + '┛', w, style.FRAME)
+        screen.addstr(row, x, '│', style.FRAME)
+        screen.addstr(row, x + w - 1, '│', style.FRAME)
+    screen.addnstr(y + h - 1, x, '└' + '─' * (w - 2) + '┘', w, style.FRAME)
+
+
+# A line cell's directions (up, down, left, right) and the character for them.
+STEPS = {'u': (-1, 0, 'd'), 'd': (1, 0, 'u'), 'l': (0, -1, 'r'), 'r': (0, 1, 'l')}
+LINE_CHARS = {'ud': '│', 'lr': '─', 'dlr': '┬', 'ulr': '┴', 'udr': '├', 'udl': '┤', 'udlr': '┼'}
+
+
+def draw_lines(screen, lines):
+    """The thin lines between windows (from Layout.place), joined where
+    they meet, so they look like the line under a document's title."""
+    cells = {}
+    for kind, y, x, length in lines:
+        for i in range(length):
+            cells[(y + i, x) if kind == '|' else (y, x + i)] = set('ud' if kind == '|' else 'lr')
+    for (y, x), directions in list(cells.items()):
+        for d in list(directions):
+            dy, dx, back = STEPS[d]
+            if (y + dy, x + dx) in cells:
+                cells[(y + dy, x + dx)].add(back)
+    for (y, x), directions in cells.items():
+        char = LINE_CHARS[''.join(sorted(directions, key='udlr'.index))]
+        screen.addstr(y, x, char, style.LINE)
 
 
 class Writer:
@@ -281,12 +304,13 @@ class Writer:
     # ---- drawing
 
     def draw(self, only_focus=False):
-        rects, _ = self.places()
+        rects, lines = self.places()
         alone = len(rects) == 1
         if only_focus:
             windows = [self.layout.focus]
         else:
             self.screen.erase()
+            draw_lines(self.screen, lines)
             windows = list(rects)
             for window in windows:
                 if isinstance(window, FileList):
@@ -331,6 +355,7 @@ def main(screen, folder):
     curses.raw()
     screen.keypad(False)
     style.init()
+    style.set_palette()
     screen.bkgd(' ', style.BACKDROP)
     os.makedirs(folder, exist_ok=True)
     Writer(screen, folder).run()
