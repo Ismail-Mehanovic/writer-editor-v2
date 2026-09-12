@@ -10,7 +10,7 @@ Pi first.
 |---|---|---|
 | Big title and # headings, as in the screenshot | One font, one size | Title and headings in bright bold white, body softer; `#` marks dimmed; a line under the title |
 | The screenshot's colours | 16 colours | Redefine the console palette at startup (navy `#131B2E` background, sampled from the screenshot); reset it on exit |
-| A thin I-beam cursor | Only block or underline cursors | Blinking underline (or block) |
+| An upright text cursor | The console only draws flat cursors (underline or block) | cursor_font.py adds barred copies of typed characters to the font; the editor draws the character under the cursor with its bar (steady, not blinking) |
 | Pressing Alt on its own | A modifier alone sends nothing to a terminal | Esc instead (decided) |
 | Ctrl+arrows, Alt+arrows | Same codes as plain arrows by default; Alt+←/→ even switch to another console | A small keymap loaded at boot gives each combo its own code |
 | Del and Ctrl+Del doing different things | Same code by default (why Del sleeps today) | Same keymap: Del deletes forward, only Ctrl+Del sleeps |
@@ -186,6 +186,7 @@ short and readable:
 ```text
 main.py      startup, main loop, autosave timer, shell and power keys
 keys.py      raw input -> key names ('ctrl-left', 'alt-up', 'a', ...)
+cursor_font.py  the upright cursor: barred glyphs in a console font
 document.py  title, lines, atomic save, rename with (2)
 editor.py    editor window: title field, body, cursor, wrap, scroll
 filelist.py  file list window
@@ -201,14 +202,15 @@ layout work instead of a rewrite.
 
 1. **Done.** Minimal editor. Also done: Ctrl+Space shell toggle, Ctrl+Del
    sleep, boot to editor (setup.sh), quiet console.
-2. **Keyboard foundation.** console.keymap (loaded at every tty1 login)
+2. **Keyboard foundation.** console.keymap (loaded as root before each login)
    gives Ctrl/Alt+arrows and Ctrl+Del their own codes, and stops Alt+←/→
    switching consoles. keys.py decodes them. Raw mode, so Ctrl+C/Z/S
    arrive as ordinary keys. `python3 keys.py` shows the name of every key
    pressed and a line of test glyphs. setup.sh also sets the 16x32 font.
    *Pi test:* every combo shows the right name; å ä ö appear as
    themselves; Alt+← stays in the editor; box lines and · render.
-3. **Cursor.** Arrows, Home/End, Del; type and delete anywhere.
+3. **Cursor.** Arrows, Home/End, Del; type and delete anywhere; the
+   upright cursor (cursor_font.py).
    *Pi test:* move through a paragraph containing å ä ö; insert and delete
    in the middle of it.
 4. **Autosave.** Save 2 s after typing stops, atomically. Also save on
@@ -244,6 +246,9 @@ layout work instead of a rewrite.
   Load it after console-setup so the Swedish layout stays intact.
 - Keypad mode is off; keys.py decodes escape sequences itself. After Esc
   it waits 25 ms for the rest of a sequence, so a lone Esc feels instant.
+- Loading a keymap needs root on this kernel: as a normal user, even on
+  your own console, loadkeys fails (KDSKBMODE: Operation not permitted).
+  So the getty@tty1 drop-in loads it (ExecStartPre), not the login hook.
 - Checked on the Pi (2026-09-12): Ctrl+arrows have no keymap entries
   (they send plain arrows), Alt+←/→ are Decr/Incr_Console, Alt+↑ is
   KeyboardSignal, and Ctrl+Alt+Del is Boot (reboot): don't bind that one.

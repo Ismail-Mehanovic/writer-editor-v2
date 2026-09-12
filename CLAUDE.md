@@ -56,8 +56,8 @@ documents are .md files, the console font is 16x32 (80x25).
 ## Status
 
 - [x] Stage 1: Minimal editor, plus shell toggle, sleep key, boot to editor
-- [ ] Stage 2: Keyboard foundation (built, waiting for the Pi test)
-- [ ] Stage 3: Cursor
+- [ ] Stage 2: Keyboard foundation (keymap needed root; fixed, retest)
+- [ ] Stage 3: Cursor, with the upright cursor (built, waiting for Pi test)
 - [ ] Stage 4: Autosave
 - [ ] Stage 5: Word wrap + centered column
 - [ ] Stage 6: Scrolling
@@ -85,8 +85,9 @@ documents are .md files, the console font is 16x32 (80x25).
   shorting GPIO3 to GND (pins 5+6, e.g. a button) or re-plugging power
   boots it. That is why the power key sleeps instead of shutting down.
 - setup.sh (run once on the Pi with sudo) sets up boot-to-editor
-  (autologin on tty1 + a hook in ~/.profile that loads console.keymap and
-  opens ~/writing/document.txt), the 16x32 console font,
+  (autologin on tty1 + a hook in ~/.profile opening
+  ~/writing/document.txt; before each login the login service loads
+  console.keymap and cursor-font.psf as root), the 16x32 console font,
   passwordless shutdown (/etc/sudoers.d/writer-power), a udev rule
   making the backlight writable by the video group, and a sysctl
   (kernel.printk = 1 4 1 3) that keeps kernel messages like
@@ -103,6 +104,14 @@ documents are .md files, the console font is 16x32 (80x25).
   which setup.sh now sets. Both font sizes have light and heavy box
   lines, arrows, ▸ and •. The 'linux' terminfo has no keypad-mode strings
   and no modified-arrow keys, so keys.py decodes key sequences itself.
+- Loading a keymap or font on the console needs root on this kernel, even
+  on your own tty (loadkeys: KDSKBMODE: Operation not permitted). So the
+  getty@tty1 drop-in does it in ExecStartPre, never the user's login hook.
+- Upright cursor: cursor_font.py makes cursor-font.psf (Terminus 16x32
+  minus expendable scripts, plus barred copies of typed characters at
+  U+E000+). The login service loads it and creates /run/writer-cursor-font;
+  main.py draws barred glyphs only when that marker exists, otherwise it
+  uses the console's flat cursor.
 
 ## Workflow (standing instruction from the user)
 

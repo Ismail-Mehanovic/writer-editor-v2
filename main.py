@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Minimal editor with a shell toggle and a power key (stages 1-2).
+"""Editor with a shell toggle and a power key (stages 1-3).
 
-Type, backspace, Ctrl+Q to quit. Ctrl+Space toggles between the editor
-and a shell. Ctrl+Del turns the screen off (sleep); pressing it again
-turns it back on. Bottom row is a status line. Keys arrive through
-keys.py as names like 'enter' or 'ctrl-del', or as the typed character.
+Type anywhere; move with the arrows, Home and End; Backspace and Del
+delete. Ctrl+Q quits. Ctrl+Space toggles between the editor and a shell.
+Ctrl+Del turns the screen off (sleep); pressing it again turns it back on.
+Bottom row is a status line. Keys arrive through keys.py as names like
+'enter' or 'ctrl-del', or as the typed character. The cursor is upright
+when the font from cursor_font.py is loaded, flat otherwise.
 """
 
 import curses
@@ -17,9 +19,11 @@ import tempfile
 import time
 import traceback
 
+import cursor_font
 import keys
 
 QUIT_KEY = 'ctrl-q'
+MOVE_KEYS = ('left', 'right', 'up', 'down', 'home', 'end')
 
 # Ctrl+Space arrives as a single null byte (showkey -a: ^@), which keys.py
 # calls 'ctrl-space'. SHELL_KEY_READLINE is the same key in bash's bind
@@ -30,7 +34,7 @@ SHELL_KEY_READLINE = r'\C-@'
 SHELL_RC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shellrc')
 
 # Ctrl+Del. It only differs from plain Del once console.keymap is loaded,
-# which the login hook from setup.sh does.
+# which the login service does (see setup.sh).
 POWER_KEY = 'ctrl-del'
 
 # A Pi 3B+ that has shut down can't be switched on from a Bluetooth
@@ -107,7 +111,7 @@ def sleep_until_woken(screen):
     Returns True if woken, False if SLEEP_SHUTDOWN_MINUTES ran out first."""
     old_levels = set_backlight({p: '0' for p in glob.glob(BACKLIGHT_GLOB)})
     screen.erase()
-    curses.curs_set(0)
+    was_visible = curses.curs_set(0)
     screen.refresh()
 
     deadline = time.monotonic() + SLEEP_SHUTDOWN_MINUTES * 60
@@ -123,7 +127,7 @@ def sleep_until_woken(screen):
     # Restore even before a shutdown: systemd saves the level at shutdown
     # and would bring the screen back up nearly black on the next boot.
     set_backlight(old_levels)
-    curses.curs_set(1)
+    curses.curs_set(was_visible)
     return woken
 
 
@@ -145,10 +149,62 @@ def do_shutdown(screen):
     return False, error
 
 
+def move_cursor(key, lines, cy, cx, want_x):
+    """Where the cursor ends up after a movement key. want_x is the column
+    Up and Down aim for, so the cursor keeps its column past short lines."""
+    if key == 'left' and cx > 0:
+        return cy, cx - 1
+    if key == 'left' and cy > 0:
+        return cy - 1, len(lines[cy - 1])
+    if key == 'right' and cx < len(lines[cy]):
+        return cy, cx + 1
+    if key == 'right' and cy < len(lines) - 1:
+        return cy + 1, 0
+    if key == 'up':
+        return (cy - 1, min(want_x, len(lines[cy - 1]))) if cy > 0 else (cy, 0)
+    if key == 'down' and cy < len(lines) - 1:
+        return cy + 1, min(want_x, len(lines[cy + 1]))
+    if key in ('down', 'end'):
+        return cy, len(lines[cy])
+    if key == 'home':
+        return cy, 0
+    return cy, cx
+
+
+def cell_text(lines, y, x):
+    """The character shown at screen row y, column x (a space past the text)."""
+    line = lines[y] if y < len(lines) else ''
+    return line[x] if x < len(line) else ' '
+
+
+def place_cursor(screen, lines, cy, cx, shown, upright):
+    """Puts the cursor at text position (cy, cx) and returns the screen cell
+    it is in. Until word wrap and scrolling (stages 5-6), a cursor past the
+    screen's edges waits at the edge. With the upright cursor, the character
+    in that cell is drawn with its bar (see cursor_font.py) and the cell
+    shown before gets its plain character back."""
+    max_y, max_x = screen.getmaxyx()
+    y, x = min(cy, max_y - 2), min(cx, max_x - 1)
+    if upright:
+        curses.curs_set(0)  # the shell may have turned the flat one back on
+        if shown and shown != (y, x):
+            screen.addstr(*shown, cell_text(lines, *shown))
+        char = cell_text(lines, y, x)
+        barred = cursor_font.with_bar(char)
+        if barred:
+            screen.addstr(y, x, barred)
+        else:
+            screen.addstr(y, x, char, curses.A_REVERSE)
+    screen.move(y, x)
+    return y, x
+
+
 def redraw_line(screen, lines, y):
-    screen.move(y, 0)
-    screen.clrtoeol()
-    screen.addstr(y, 0, lines[y])
+    max_y, max_x = screen.getmaxyx()
+    if y < max_y - 1:  # the last row is the status line
+        screen.move(y, 0)
+        screen.clrtoeol()
+        screen.addnstr(y, 0, lines[y], max_x)
 
 
 def draw_status(screen, filepath, dirty, message):
@@ -166,11 +222,8 @@ def draw_status(screen, filepath, dirty, message):
 def redraw_all(screen, lines, filepath, dirty, message):
     screen.clear()
     max_y, max_x = screen.getmaxyx()
-    content_rows = max_y - 1  # last row is reserved for the status line
-    for row, text in enumerate(lines):
-        if row >= content_rows:
-            break
-        screen.addstr(row, 0, text)
+    for row, text in enumerate(lines[:max_y - 1]):  # last row: status line
+        screen.addnstr(row, 0, text, max_x)
     draw_status(screen, filepath, dirty, message)
 
 
@@ -180,16 +233,19 @@ def main(screen, filepath):
     # the escape sequences itself.
     curses.raw()
     screen.keypad(False)
-    curses.curs_set(1)
+    upright = cursor_font.loaded()
+    curses.curs_set(0 if upright else 1)
     lines = load_document(filepath)
     cy, cx = 0, 0
+    want_x = 0    # the column Up and Down aim for
+    shown = None  # the screen cell the cursor was last drawn in
     dirty = False
     message = ''
 
     redraw_all(screen, lines, filepath, dirty, message)
 
     while True:
-        screen.move(cy, cx)
+        shown = place_cursor(screen, lines, cy, cx, shown, upright)
         screen.refresh()
         key = keys.read(screen)
 
@@ -224,6 +280,9 @@ def main(screen, filepath):
                 message = f'shutdown failed: {err}'
             redraw_all(screen, lines, filepath, dirty, message)
 
+        elif key in MOVE_KEYS:
+            cy, cx = move_cursor(key, lines, cy, cx, want_x)
+
         elif key == 'backspace':
             if cx > 0:
                 line = lines[cy]
@@ -235,11 +294,22 @@ def main(screen, filepath):
                 redraw_line(screen, lines, cy)
             elif cy > 0:
                 cx = len(lines[cy - 1])
-                lines[cy - 1] += lines[cy]
-                del lines[cy]
+                lines[cy - 1] += lines.pop(cy)
                 cy -= 1
+                dirty = True
+                redraw_all(screen, lines, filepath, dirty, message)
+
+        elif key == 'del':
+            line = lines[cy]
+            if cx < len(line):
+                lines[cy] = line[:cx] + line[cx + 1:]
                 if not dirty:
                     dirty = True
+                    draw_status(screen, filepath, dirty, message)
+                redraw_line(screen, lines, cy)
+            elif cy < len(lines) - 1:
+                lines[cy] += lines.pop(cy + 1)
+                dirty = True
                 redraw_all(screen, lines, filepath, dirty, message)
 
         elif key == 'enter':
@@ -248,8 +318,7 @@ def main(screen, filepath):
             lines.insert(cy + 1, line[cx:])
             cy += 1
             cx = 0
-            if not dirty:
-                dirty = True
+            dirty = True
             redraw_all(screen, lines, filepath, dirty, message)
 
         elif keys.is_text(key):
@@ -260,6 +329,9 @@ def main(screen, filepath):
                 dirty = True
                 draw_status(screen, filepath, dirty, message)
             redraw_line(screen, lines, cy)
+
+        if key not in ('up', 'down'):
+            want_x = cx
 
 
 if __name__ == '__main__':

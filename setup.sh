@@ -15,18 +15,29 @@ WRITING_DIR="$USER_HOME/writing"  # also where Ctrl+Space's shell starts
 DOCUMENT=document.txt
 
 # 1. Log in automatically on the screen (tty1) at boot, no password.
+#    Just before each login, load the editor's key codes (console.keymap)
+#    and the upright-cursor font (cursor-font.psf, made by cursor_font.py).
+#    Both need root, which the login service has, and both are read fresh
+#    from the repo each time. /run/writer-cursor-font tells the editor the
+#    font is on the screen. The '-' means a failure can't stop the login.
+KEYS="loadkeys -q -C /dev/tty1 $REPO/console.keymap"
+FONT="rm -f /run/writer-cursor-font; setfont -C /dev/tty1 $REPO/cursor-font.psf && touch /run/writer-cursor-font"
+sudo -u "$USER_NAME" python3 "$REPO/cursor_font.py" || echo "(no cursor font made: the flat cursor stays)"
 mkdir -p /etc/systemd/system/getty@tty1.service.d
 cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
 [Service]
+ExecStartPre=-/bin/sh -c '$KEYS'
+ExecStartPre=-/bin/sh -c '$FONT'
 ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
 systemctl daemon-reload
+sh -c "$KEYS" || echo "(key codes not loaded)"  # and load both right away
+sh -c "$FONT" || echo "(cursor font not loaded)"
 
-# 2. That login loads the editor's key codes (console.keymap, read fresh
-#    from the repo every time) and opens the editor. Ctrl+Q (or a crash)
-#    leaves you in a normal shell; typing exit there logs out, autologin
-#    logs straight back in, and the editor opens again.
+# 2. That login opens the editor. Ctrl+Q (or a crash) leaves you in a
+#    normal shell; typing exit there logs out, autologin logs straight
+#    back in, and the editor opens again.
 PROFILE="$USER_HOME/.profile"
 [ -f "$USER_HOME/.bash_profile" ] && PROFILE="$USER_HOME/.bash_profile"
 touch "$PROFILE"
@@ -36,7 +47,6 @@ cat >> "$PROFILE" <<EOF
 # >>> writer >>>
 # Added by $REPO/setup.sh: the screen's login (tty1) opens the editor.
 if [ "\$(tty)" = /dev/tty1 ]; then
-    loadkeys -q '$REPO/console.keymap'
     cd '$WRITING_DIR' && python3 '$REPO/main.py' '$DOCUMENT'
     echo 'Editor closed. Type exit to go back to it.'
 fi
