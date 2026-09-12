@@ -112,6 +112,10 @@ documents are .md files, the console font is 16x32 (80x25).
   only rows that changed (about 4 ms per keystroke on the Pi). Tests set
   WRITER_SCREEN=memory (never touch the real screen) and
   WRITER_SCREENSHOT=file.png to look at the result.
+- File list (filelist.py): folders under ~/writing, a "New folder" row,
+  breadcrumbs, Tab to move (Enter on a folder or "Back to ..." drops it),
+  Backspace asks, then moves the item to ~/writing/.trash (hidden, never
+  emptied by the editor). A question or folder name takes every key.
 
 ## Workflow (standing instruction from the user)
 
