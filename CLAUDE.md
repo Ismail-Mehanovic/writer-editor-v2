@@ -56,16 +56,11 @@ documents are .md files, the console font is 16x32 (80x25).
 ## Status
 
 - [x] Stage 1: Minimal editor, plus shell toggle, sleep key, boot to editor
-- [ ] Stage 2: Keyboard foundation (keymap needed root; fixed, retest)
-- [ ] Stage 3: Cursor, with the upright cursor (built, waiting for Pi test)
-- [ ] Stage 4: Autosave
-- [ ] Stage 5: Word wrap + centered column
-- [ ] Stage 6: Scrolling
-- [ ] Stage 7: Titles and the look
-- [ ] Stage 8: Headings
-- [ ] Stage 9: Windows: splits
-- [ ] Stage 10: Windows: file list
-- [ ] Stage 11: Windows: select mode
+- [x] Stage 2: Keyboard foundation
+- [x] Stage 3: Cursor, with the upright cursor
+- [ ] Stages 4-11 (autosave, wrap, scrolling, titles and the look,
+  headings, splits, file list, select mode): built together at the
+  user's request, waiting for the Pi test
 - [ ] Stage 12: Undo / redo
 
 ## Working notes
@@ -86,7 +81,7 @@ documents are .md files, the console font is 16x32 (80x25).
   boots it. That is why the power key sleeps instead of shutting down.
 - setup.sh (run once on the Pi with sudo) sets up boot-to-editor
   (autologin on tty1 + a hook in ~/.profile opening
-  ~/writing/document.txt; before each login the login service loads
+  the editor on ~/writing; before each login the login service loads
   console.keymap and cursor-font.psf as root), the 16x32 console font,
   passwordless shutdown (/etc/sudoers.d/writer-power), a udev rule
   making the backlight writable by the video group, and a sysctl
@@ -97,7 +92,9 @@ documents are .md files, the console font is 16x32 (80x25).
   (banks hold 5 V until they cut out; the warnings come from load spikes).
   A charge display would need hardware, e.g. a battery board with a
   fuel-gauge chip on I2C.
-- PLAN.md holds the roadmap (windows, titles, keys) and its stages.
+- PLAN.md holds the roadmap (windows, titles, keys) and its stages. The
+  code follows its section 7: main.py (loop, window keys, autosave),
+  editor.py, filelist.py, layout.py, document.py, style.py, keys.py.
 - Checked on the Pi over SSH (2026-09-12): Raspberry Pi OS on Debian 13
   (trixie), kernel 6.18, Python 3.13.5, bash 5.2, ncurses 6.5. The console
   font was TerminusBold 10x20 (128x40); the user chose 16x32 (80x25),

@@ -11,8 +11,7 @@ set -eu
 USER_NAME=${SUDO_USER:?run this with sudo from your normal account}
 USER_HOME=$(getent passwd "$USER_NAME" | cut -d: -f6)
 REPO=$(cd "$(dirname "$0")" && pwd)
-WRITING_DIR="$USER_HOME/writing"  # also where Ctrl+Space's shell starts
-DOCUMENT=document.txt
+WRITING_DIR="$USER_HOME/writing"  # the documents; Ctrl+Space's shell starts here
 
 # 1. Log in automatically on the screen (tty1) at boot, no password.
 #    Just before each login, load the editor's key codes (console.keymap)
@@ -35,9 +34,9 @@ systemctl daemon-reload
 sh -c "$KEYS" || echo "(key codes not loaded)"  # and load both right away
 sh -c "$FONT" || echo "(cursor font not loaded)"
 
-# 2. That login opens the editor. Ctrl+Q (or a crash) leaves you in a
-#    normal shell; typing exit there logs out, autologin logs straight
-#    back in, and the editor opens again.
+# 2. That login opens the editor on a new, empty document. Ctrl+Q (or a
+#    crash) leaves you in a normal shell; typing exit there logs out,
+#    autologin logs straight back in, and the editor opens again.
 PROFILE="$USER_HOME/.profile"
 [ -f "$USER_HOME/.bash_profile" ] && PROFILE="$USER_HOME/.bash_profile"
 touch "$PROFILE"
@@ -47,7 +46,7 @@ cat >> "$PROFILE" <<EOF
 # >>> writer >>>
 # Added by $REPO/setup.sh: the screen's login (tty1) opens the editor.
 if [ "\$(tty)" = /dev/tty1 ]; then
-    cd '$WRITING_DIR' && python3 '$REPO/main.py' '$DOCUMENT'
+    cd '$WRITING_DIR' && python3 '$REPO/main.py' '$WRITING_DIR'
     echo 'Editor closed. Type exit to go back to it.'
 fi
 # <<< writer <<<
@@ -86,5 +85,5 @@ sed -i -e '/^FONTFACE=/d' -e '/^FONTSIZE=/d' /etc/default/console-setup
 printf 'FONTFACE="TerminusBold"\nFONTSIZE="16x32"\n' >> /etc/default/console-setup
 setupcon --save-only
 
-echo "Done. The editor will open $WRITING_DIR/$DOCUMENT at boot."
+echo "Done. The editor opens at boot; documents are kept in $WRITING_DIR."
 echo "Reboot now to try it:  sudo reboot"

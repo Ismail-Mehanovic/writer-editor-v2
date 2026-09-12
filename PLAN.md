@@ -14,7 +14,7 @@ Pi first.
 | Pressing Alt on its own | A modifier alone sends nothing to a terminal | Esc instead (decided) |
 | Ctrl+arrows, Alt+arrows | Same codes as plain arrows by default; Alt+←/→ even switch to another console | A small keymap loaded at boot gives each combo its own code |
 | Del and Ctrl+Del doing different things | Same code by default (why Del sleeps today) | Same keymap: Del deletes forward, only Ctrl+Del sleeps |
-| Splitting as often as you like | 80×25 characters | Minimum window about 20 columns × 6 rows; a smaller split is refused with a message |
+| Splitting as often as you like | 80×25 characters | Minimum window about 16 columns × 6 rows; a smaller split is refused with a message |
 | Frames and symbols | The console font holds 512 glyphs | Checked on the Pi: light and heavy box lines, ← ↑ → ↓, ▸, • and … are all in it, so the select frame can be heavy |
 
 ## 2. Things an editor needs that weren't on the list
