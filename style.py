@@ -17,7 +17,9 @@ LABEL = (139, 155, 180)      # "DOCUMENT", the status line, heading marks
 TEXT = (216, 222, 233)       # body text
 TITLE = (255, 255, 255)      # titles, headings, the cursor
 SELECTED = (34, 48, 77)      # the chosen document in a file list
-ACCENT = (122, 162, 247)     # the frame around the window select mode picks
+ACCENT = (122, 162, 247)     # the select-mode frame, "New folder"
+RAISED = (26, 37, 62)        # a card over a window (the delete question)
+DANGER = (196, 64, 76)       # the Delete button, when chosen
 
 PAGE_WIDTH = 960             # a lone document is a page this wide, centred
 PAGE_TOP = 28                # gap above the page

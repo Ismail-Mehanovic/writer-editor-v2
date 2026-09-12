@@ -220,6 +220,9 @@ class Writer:
                 return 'quit'
             self.message = f'Shutdown failed: {err}'
             return True
+        focus = self.layout.focus
+        if isinstance(focus, FileList) and focus.modal():
+            return self.list_key(focus, key)  # a question or a name takes every key
         if key == SELECT_KEY:
             self.selecting = True
             return True
@@ -228,12 +231,8 @@ class Writer:
         if key in NEW_DOCUMENT_KEYS:
             return self.split(self.new_editor(), NEW_DOCUMENT_KEYS[key])
 
-        focus = self.layout.focus
         if isinstance(focus, FileList):
-            path = focus.handle(key)
-            if path:
-                self.open(path, focus)
-            return True  # lists are short: always drawn whole
+            return self.list_key(focus, key)
         was_in_title = focus.in_title
         try:
             self.message = focus.handle(key) or ''
@@ -257,6 +256,47 @@ class Writer:
                 self.layout.focus = editor
                 return
         self.layout.swap(file_list, self.new_editor(path))
+
+    def list_key(self, file_list, key):
+        """Hands a key to a file list and acts on what it reports."""
+        try:
+            event = file_list.handle(key)
+        except OSError as e:
+            self.message = f"That didn't work: {e}"
+            return False
+        if not event:
+            return False  # only the list changed
+        if event[0] == 'open':
+            self.open(event[1], file_list)
+        elif event[0] == 'moved':
+            self.relocate(*event[1:])
+        elif event[0] == 'deleted':
+            self.forget(event[1])
+        elif event[0] == 'message':
+            self.message = event[1]
+            return False
+        return True  # other windows may show the change
+
+    def relocate(self, old, new):
+        """Open documents that were moved (or sit in a moved folder) keep
+        saving to their new place."""
+        for editor in self.editors():
+            path = editor.doc.path
+            if path and (path == old or path.startswith(old + os.sep)):
+                editor.doc.path = new + path[len(old):]
+                editor.doc.folder = os.path.dirname(editor.doc.path)
+
+    def forget(self, path):
+        """Closes the windows of documents that were deleted."""
+        keep = self.layout.focus
+        for editor in self.editors():
+            doomed = editor.doc.path
+            if doomed and (doomed == path or doomed.startswith(path + os.sep)):
+                editor.doc.dirty = False  # never write it back
+                if not self.layout.close(editor):
+                    self.layout.swap(editor, self.new_editor())
+        if keep in self.layout.windows():
+            self.layout.focus = keep
 
     def select_key(self, key):
         if key in ('left', 'right', 'up', 'down'):
@@ -306,7 +346,7 @@ class Writer:
         elif self.message:
             text = self.message
         elif isinstance(focus, FileList):
-            text = 'Up/Down: pick a document    Enter: open it'
+            text = focus.status()
         elif focus.in_title:
             text = 'Type a title, then press Enter.'
         else:

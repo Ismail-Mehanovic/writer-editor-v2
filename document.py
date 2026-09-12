@@ -15,6 +15,9 @@ EXTENSION = '.md'
 LISTED = ('.md', '.txt')
 
 
+TRASH = '.trash'  # deleted things go here, out of sight but not gone
+
+
 def list_documents(folder=WRITING_DIR):
     """(title, path) for every document in folder, most recently edited first."""
     try:
@@ -23,8 +26,63 @@ def list_documents(folder=WRITING_DIR):
         return []
     paths = [os.path.join(folder, n) for n in names
              if n.endswith(LISTED) and not n.startswith('.')]
+    paths = [p for p in paths if os.path.isfile(p)]
     paths.sort(key=os.path.getmtime, reverse=True)
     return [(os.path.splitext(os.path.basename(p))[0], p) for p in paths]
+
+
+def list_folders(folder):
+    """(name, path) for every folder in folder, A to Z."""
+    try:
+        names = os.listdir(folder)
+    except FileNotFoundError:
+        return []
+    found = [(n, os.path.join(folder, n)) for n in names if not n.startswith('.')]
+    return sorted((f for f in found if os.path.isdir(f[1])), key=lambda f: f[0].lower())
+
+
+def free_name(folder, name):
+    """name, or 'name (2)', 'name (3)'... whichever nothing in folder has."""
+    try:
+        taken = {n.lower() for n in os.listdir(folder)}
+    except FileNotFoundError:
+        taken = set()
+    candidate, n = name, 1
+    while candidate.lower() in taken:
+        n += 1
+        candidate = f'{name} ({n})'
+    return candidate
+
+
+def make_folder(parent, name):
+    """Creates a folder in parent (' (2)' etc. if the name is taken) and
+    returns its path."""
+    path = os.path.join(parent, free_name(parent, clean_title(name)))
+    os.mkdir(path)
+    sync_folder(parent)
+    return path
+
+
+def move(path, destination):
+    """Moves a document or folder into destination, adding ' (2)' etc. if
+    its name is taken there. Returns its new path."""
+    if os.path.isdir(path):
+        name = free_name(destination, os.path.basename(path))
+    else:
+        title, extension = os.path.splitext(os.path.basename(path))
+        name = free_title(title, destination) + extension
+    new_path = os.path.join(destination, name)
+    os.rename(path, new_path)
+    sync_folder(os.path.dirname(path))
+    sync_folder(destination)
+    return new_path
+
+
+def trash(path, root):
+    """Moves a document or folder into root's hidden trash folder."""
+    trash_folder = os.path.join(root, TRASH)
+    os.makedirs(trash_folder, exist_ok=True)
+    return move(path, trash_folder)
 
 
 def clean_title(title):
