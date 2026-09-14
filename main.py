@@ -5,6 +5,7 @@ pixels with a smooth font (render.py, style.py).
 
     Ctrl+arrow    open a file list beside the current window
     Alt+arrow     open a new document beside the current window
+    Ctrl+plus     bigger text in this window    Ctrl+minus   smaller
     Esc           select mode: arrows pick a window, Backspace closes it,
                   any other key goes back to typing
     Ctrl+Space    shell, and back       Ctrl+Del   sleep / wake
@@ -39,6 +40,7 @@ FILES_KEYS = {'ctrl-left': 'left', 'ctrl-right': 'right',
               'ctrl-up': 'up', 'ctrl-down': 'down'}
 NEW_DOCUMENT_KEYS = {'alt-left': 'left', 'alt-right': 'right',
                      'alt-up': 'up', 'alt-down': 'down'}
+ZOOM_KEYS = {'ctrl-plus': 1, 'ctrl-minus': -1}  # each window has its own size
 AUTOSAVE_SECONDS = 2
 BLINK_SECONDS = 0.53  # the cursor is on this long, then off this long
 HINT = 'Ctrl+arrow: files    Alt+arrow: new document    Esc: windows'
@@ -151,8 +153,12 @@ class Writer:
         self._status = None  # what the status line shows now
         self.blink_at = time.monotonic() + BLINK_SECONDS
 
-    def new_editor(self, path=None):
-        return Editor(document.Document(path, folder=self.folder))
+    def new_editor(self, path=None, like=None):
+        """A window for a document. like: a window whose text size it takes."""
+        editor = Editor(document.Document(path, folder=self.folder))
+        if like is not None:
+            editor.zoom = like.zoom
+        return editor
 
     def editors(self):
         return [w for w in self.layout.windows() if isinstance(w, Editor)]
@@ -251,6 +257,8 @@ class Writer:
             return self.split(FileList(self.folder), FILES_KEYS[key])
         if key in NEW_DOCUMENT_KEYS:
             return self.split(self.new_editor(), NEW_DOCUMENT_KEYS[key])
+        if key in ZOOM_KEYS:
+            return self.zoom(focus, ZOOM_KEYS[key])
 
         if isinstance(focus, FileList):
             return self.list_key(focus, key)
@@ -262,9 +270,21 @@ class Writer:
         return was_in_title and not focus.in_title  # a title set: lists change
 
     def split(self, window, direction):
+        window.zoom = self.layout.focus.zoom  # a new window matches the one it came from
         rects, _ = self.places()
         if not self.layout.split(window, direction, rects[self.layout.focus]):
             self.message = 'No room for another window there.'
+        return True
+
+    def zoom(self, window, direction):
+        """Makes one window's text bigger or smaller; the others keep theirs."""
+        before = window.zoom
+        window.zoom = style.zoom_step(before, direction)
+        if window.zoom == before:
+            self.message = ('That is as big as the text goes.' if direction > 0
+                            else 'That is as small as the text goes.')
+        else:
+            self.message = f'Text size {round(window.zoom * 100)}%'
         return True
 
     def open(self, path, file_list):
@@ -276,7 +296,7 @@ class Writer:
                 self.layout.close(file_list)
                 self.layout.focus = editor
                 return
-        self.layout.swap(file_list, self.new_editor(path))
+        self.layout.swap(file_list, self.new_editor(path, like=file_list))
 
     def list_key(self, file_list, key):
         """Hands a key to a file list and acts on what it reports."""
@@ -315,7 +335,7 @@ class Writer:
             if doomed and (doomed == path or doomed.startswith(path + os.sep)):
                 editor.doc.dirty = False  # never write it back
                 if not self.layout.close(editor):
-                    self.layout.swap(editor, self.new_editor())
+                    self.layout.swap(editor, self.new_editor(like=editor))
         if keep in self.layout.windows():
             self.layout.focus = keep
 
@@ -327,7 +347,7 @@ class Writer:
             closing = self.layout.focus
             self.save()
             if not self.layout.close(closing):  # the last one: start afresh
-                self.layout.swap(closing, self.new_editor())
+                self.layout.swap(closing, self.new_editor(like=closing))
         else:
             self.selecting = False
         return True
@@ -385,7 +405,8 @@ class Writer:
             return  # unchanged: leave it alone
         self._status = (text, crumbs, hint, alone)
         face, baseline = style.STATUS_FACE, canvas.h - 11
-        margin = (canvas.w - style.PAGE_WIDTH) // 2 + 4 if alone else 16
+        page_width = style.sizes(focus.zoom).PAGE_WIDTH  # line up with the page's edge
+        margin = (canvas.w - page_width) // 2 + 4 if alone else 16
         hint_x = canvas.w - margin - round(face.width(hint))
         limit = hint_x - 24
         canvas.fill(0, canvas.h - style.STATUS_HEIGHT, canvas.w, style.STATUS_HEIGHT, style.BACKDROP)

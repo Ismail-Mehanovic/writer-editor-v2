@@ -1,6 +1,8 @@
 """The look: colours, fonts and sizes, taken from the design screenshots.
 
 Everything is drawn in pixels (render.py) with the Selawik font in fonts/.
+The numbers here are the full size; each window is drawn at its own zoom
+(Ctrl+plus, Ctrl+minus), and sizes(zoom) gives them all scaled to it.
 """
 
 import os
@@ -50,3 +52,50 @@ ROW_STYLES = {
     2: (_face('Selawik-Bold.ttf', 29), TITLE, 48),
     3: (_face('Selawik-Semibold.ttf', 26), TITLE, 42),
 }
+
+# Zoom. Every window has its own (Ctrl+plus, Ctrl+minus): the full size
+# above is a lot on a 10 inch panel, so a window starts at ZOOM_DEFAULT.
+ZOOM_STEPS = (0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0)
+ZOOM_DEFAULT = 0.5
+LABEL_MIN = 10  # "DOCUMENT" is small already: shrunk further it turns to mush
+
+
+def zoom_step(zoom, direction):
+    """The next zoom bigger (direction 1) or smaller (-1); at the ends, the
+    same one back."""
+    i = ZOOM_STEPS.index(zoom) if zoom in ZOOM_STEPS else ZOOM_STEPS.index(ZOOM_DEFAULT)
+    return ZOOM_STEPS[min(max(i + direction, 0), len(ZOOM_STEPS) - 1)]
+
+
+class Sizes:
+    """Every measurement at one zoom: the fonts, the page, the gaps around
+    the text. Made once per zoom and then kept for good (see sizes), because
+    the remembered line wraps and letter pictures are keyed on the font
+    objects in here."""
+
+    def __init__(self, zoom):
+        self.zoom = zoom
+        self.PAGE_WIDTH = self.px(PAGE_WIDTH)
+        self.PAGE_TOP = self.px(PAGE_TOP)
+        self.RADIUS = self.px(RADIUS)
+        self.PADDING = self.px(PADDING)
+        self.SPLIT_PADDING = self.px(SPLIT_PADDING)
+        self.LABEL_FACE = LABEL_FACE.scaled(max(zoom, LABEL_MIN / LABEL_FACE.size))
+        self.TITLE_FACE = TITLE_FACE.scaled(zoom)
+        self.LIST_FACE = LIST_FACE.scaled(zoom)
+        self.ROW_STYLES = {level: (face.scaled(zoom), colour, self.px(height))
+                           for level, (face, colour, height) in ROW_STYLES.items()}
+
+    def px(self, length):
+        """A length from the full-size design, at this zoom (never nothing)."""
+        return max(round(length * self.zoom), 1)
+
+
+_sizes = {}
+
+
+def sizes(zoom):
+    """The Sizes for zoom: the same object every time it is asked for."""
+    if zoom not in _sizes:
+        _sizes[zoom] = Sizes(zoom)
+    return _sizes[zoom]

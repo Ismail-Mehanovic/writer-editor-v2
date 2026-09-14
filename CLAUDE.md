@@ -130,6 +130,13 @@ documents are .md files, the console font is 16x32 (80x25).
   key hints show only while a document is empty; scrolling down moves
   drawn pixels (Canvas.shift, Editor._shift) instead of redrawing, and
   the word count is cached per Document.version.
+- Zoom: each window is drawn at its own size (Editor.zoom / FileList.zoom,
+  Ctrl+plus and Ctrl+minus, console.keymap keycodes 12 and 53). The
+  numbers in style.py are the full size; style.sizes(zoom) scales them
+  all, fonts included, and keeps one Sizes object per zoom because the
+  wrap and glyph caches are keyed on the font objects. ZOOM_DEFAULT is
+  0.5: the full size is too big on the panel. A new window opens at the
+  size of the one it came from; the status line is never zoomed.
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
   (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),

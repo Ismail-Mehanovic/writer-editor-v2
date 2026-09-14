@@ -36,6 +36,7 @@ class FileList:
         self.naming = None    # while a new name is typed: [kind, text so far]
         self.confirm = None   # while asking about a delete: 0 Cancel, 1 Delete
         self.cursor_on = True  # the name cursor, off for half of every blink
+        self.zoom = style.ZOOM_DEFAULT  # this window's text size
         self.reload()
 
     def reload(self, select=None):
@@ -53,6 +54,11 @@ class FileList:
         paths = [row[2] for row in self.rows]
         self.selected = (paths.index(keep) if keep in paths
                          else max(0, min(self.selected, len(self.rows) - 1)))
+
+    @property
+    def sizes(self):
+        """The fonts and measurements at this window's zoom."""
+        return style.sizes(self.zoom)
 
     def modal(self):
         """True while a question or a new name is open: it takes every key."""
@@ -153,43 +159,48 @@ class FileList:
     def draw(self, canvas, rect, focused, alone=False, full=True, active=True):
         """Draws the whole list in rect (it is short, so always all of it)."""
         x, y, w, h = rect
-        pad, face = style.SPLIT_PADDING, style.LIST_FACE
+        s = self.sizes
+        pad, face = s.SPLIT_PADDING, s.LIST_FACE
+        row_h, base = s.px(ROW), s.px(27)  # a row's height, and its baseline below its top
         right = x + w - pad
         canvas.fill(x, y, w, h, style.PAGE)
 
-        rows, top = max((h - LIST_TOP - 16) // ROW, 1), y + LIST_TOP
+        rows, top = max((h - s.px(LIST_TOP) - s.px(16)) // row_h, 1), y + s.px(LIST_TOP)
         if self.naming is not None:  # the name being typed gets its own row
             self._draw_name(canvas, x + pad, top, right)
-            rows, top = max(rows - 1, 1), top + ROW
+            rows, top = max(rows - 1, 1), top + row_h
         elif not self.rows:
-            canvas.text(face, x + pad, top + 27, 'Nothing here yet.    Ctrl+D: new document',
+            canvas.text(face, x + pad, top + base, 'Nothing here yet.    Ctrl+D: new document',
                         style.LABEL, style.PAGE, right)
         first = max(0, self.selected - rows + 1)
         for i, (kind, name, path) in enumerate(self.rows[first:first + rows]):
-            row_y = top + i * ROW
+            row_y = top + i * row_h
             chosen = first + i == self.selected and self.naming is None
             bg = style.SELECTED if chosen and focused else style.PAGE
             if bg != style.PAGE:
-                canvas.rounded(x + pad - 12, row_y, w - 2 * pad + 24, ROW - 6, 8, bg, style.PAGE)
+                canvas.rounded(x + pad - s.px(12), row_y, w - 2 * pad + s.px(24), row_h - s.px(6),
+                               s.px(8), bg, style.PAGE)
             label, colour = name, style.TITLE if chosen else style.TEXT
             if kind == 'back':
                 label, colour = f'‹   Back to {name}', style.LABEL
             if path == self.moving:
                 label, colour = f'{name}  (moving)', style.LABEL
-            canvas.text(face, x + pad, row_y + 27, label, colour, bg, right - 24)
+            canvas.text(face, x + pad, row_y + base, label, colour, bg, right - s.px(24))
             if kind == 'folder':
-                canvas.text(face, right - 10, row_y + 27, '›', style.LABEL, bg)
+                canvas.text(face, right - s.px(10), row_y + base, '›', style.LABEL, bg)
         if self.confirm is not None:
             self._draw_confirm(canvas, rect)
 
     def _draw_name(self, canvas, x, row_y, right):
         """The row where a new folder's or document's name is typed."""
-        face = style.LIST_FACE
-        canvas.rounded(x - 12, row_y, right - x + 24, ROW - 6, 8, style.SELECTED, style.PAGE)
-        end = canvas.text(face, x, row_y + 27, f'New {self.naming[0]}:  ', style.LABEL, style.SELECTED, right)
-        end = canvas.text(face, end, row_y + 27, self.naming[1], style.TITLE, style.SELECTED, right)
+        s = self.sizes
+        face, base = s.LIST_FACE, s.px(27)
+        canvas.rounded(x - s.px(12), row_y, right - x + s.px(24), s.px(ROW) - s.px(6), s.px(8),
+                       style.SELECTED, style.PAGE)
+        end = canvas.text(face, x, row_y + base, f'New {self.naming[0]}:  ', style.LABEL, style.SELECTED, right)
+        end = canvas.text(face, end, row_y + base, self.naming[1], style.TITLE, style.SELECTED, right)
         if self.cursor_on:
-            canvas.fill(round(end) + 2, row_y + 27 - face.ascent + 2, style.CURSOR_WIDTH,
+            canvas.fill(round(end) + 2, row_y + base - face.ascent + 2, style.CURSOR_WIDTH,
                         face.ascent + face.descent - 2, style.TITLE)
 
     def crumbs(self):

@@ -32,6 +32,7 @@ SEQUENCES = {
     '[1;2A': 'shift-up', '[1;2B': 'shift-down',
     '[1;2C': 'shift-right', '[1;2D': 'shift-left',
     '[1;2H': 'shift-home', '[1;2F': 'shift-end',
+    '[30~': 'ctrl-plus', '[31~': 'ctrl-minus',  # Ctrl with the + and - keys
 }
 
 CONTROL_KEYS = {

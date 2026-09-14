@@ -9,8 +9,10 @@ sideways as it is typed. The document scrolls as one piece: once the
 writing reaches the bottom, the title and the page's top edge move up out
 of sight as well. With the whole screen to itself the editor is a centred
 page with rounded corners; beside other windows it fills its window, and
-is drawn dimmer while another window is in use. Only rows that changed
-are redrawn, and scrolling down moves what is already drawn.
+is drawn dimmer while another window is in use. Ctrl+plus and Ctrl+minus
+make this window's text bigger or smaller (self.zoom, style.sizes). Only
+rows that changed are redrawn, and scrolling down moves what is already
+drawn.
 """
 
 import document
@@ -32,9 +34,9 @@ def heading_level(line):
     return marks if 1 <= marks <= 3 and line[marks:marks + 1] == ' ' else 0
 
 
-def row_style(line):
-    """(font, colour, row height) for a line."""
-    return style.ROW_STYLES[heading_level(line)]
+def row_style(sizes, line):
+    """(font, colour, row height) for a line, at one window's zoom."""
+    return sizes.ROW_STYLES[heading_level(line)]
 
 
 def wrap(text, face, width):
@@ -78,6 +80,7 @@ class Editor:
 
     def __init__(self, doc):
         self.doc = doc
+        self.zoom = style.ZOOM_DEFAULT  # this window's text size
         self.title = doc.title          # the title as it is being typed
         self.in_title = not doc.title
         self.tx = len(self.title)       # cursor position in the title
@@ -97,6 +100,11 @@ class Editor:
         if self._words[0] != self.doc.version:
             self._words = (self.doc.version, sum(len(line.split()) for line in self.doc.lines))
         return self._words[1]
+
+    @property
+    def sizes(self):
+        """The fonts and measurements at this window's zoom."""
+        return style.sizes(self.zoom)
 
     # ---- keys
 
@@ -252,14 +260,14 @@ class Editor:
 
     def _starts(self, line):
         text = self.doc.lines[line]
-        return wrapped(text, row_style(text)[0], self.width)
+        return wrapped(text, row_style(self.sizes, text)[0], self.width)
 
     def _position(self):
         """The cursor's row within its line, and its x in pixels in that row."""
         text = self.doc.lines[self.cy]
         starts = self._starts(self.cy)
         row = max(i for i, s in enumerate(starts) if s <= self.cx)
-        return row, row_style(text)[0].width(text[starts[row]:self.cx])
+        return row, row_style(self.sizes, text)[0].width(text[starts[row]:self.cx])
 
     def _row_end(self, line, starts, row):
         return starts[row + 1] - 1 if row + 1 < len(starts) else len(self.doc.lines[line])
@@ -273,7 +281,8 @@ class Editor:
             return
         if key in ('up', 'down', 'pgup', 'pgdn'):
             step = -1 if key in ('up', 'pgup') else 1
-            for _ in range(max(self.body_height // 40, 1) if key in ('pgup', 'pgdn') else 1):
+            page = max(self.body_height // self.sizes.ROW_STYLES[0][2], 1)  # rows in a windowful
+            for _ in range(page if key in ('pgup', 'pgdn') else 1):
                 if not self._vertical(step):
                     break
             return  # keep self.want
@@ -314,7 +323,7 @@ class Editor:
             row += step
         text = lines[self.cy]
         self.cx = index_at(text, starts[row], self._row_end(self.cy, starts, row),
-                           row_style(text)[0], self.want)
+                           row_style(self.sizes, text)[0], self.want)
         return True
 
     # ---- scrolling
@@ -322,11 +331,11 @@ class Editor:
     def _cursor_y(self, body_top):
         """Where the cursor's row starts, in pixels from the document's top,
         and how tall it is."""
-        lines = self.doc.lines
+        lines, sizes = self.doc.lines, self.sizes
         y = body_top
         for line in range(self.cy):
-            y += len(self._starts(line)) * row_style(lines[line])[2]
-        height = row_style(lines[self.cy])[2]
+            y += len(self._starts(line)) * row_style(sizes, lines[line])[2]
+        height = row_style(sizes, lines[self.cy])[2]
         return y + self._position()[0] * height, height
 
     def _follow_cursor(self, view, body_top):
@@ -335,11 +344,12 @@ class Editor:
         if self.in_title:
             self.scroll = 0
             return
+        margin = self.sizes.px(MARGIN)
         top, height = self._cursor_y(body_top)
-        if top + height > self.scroll + view - MARGIN:
-            self.scroll = top + height - view + MARGIN
-        elif top < self.scroll + MARGIN:
-            self.scroll = 0 if top + height <= view - MARGIN else top - MARGIN
+        if top + height > self.scroll + view - margin:
+            self.scroll = top + height - view + margin
+        elif top < self.scroll + margin:
+            self.scroll = 0 if top + height <= view - margin else top - margin
 
     # ---- drawing
 
@@ -348,20 +358,22 @@ class Editor:
         cursor; active: the window in use (others are drawn dimmer). Unless
         full or the window moved, only what changed is redrawn."""
         rx, ry, rw, rh = rect
-        lone = alone and rw > style.PAGE_WIDTH
+        s = self.sizes
+        lone = alone and rw > s.PAGE_WIDTH
         if lone:
-            px, pw = rx + (rw - style.PAGE_WIDTH) // 2, style.PAGE_WIDTH
-            pad, header, page_top, edge = style.PADDING, LONE_HEADER, style.PAGE_TOP, 1
+            px, pw = rx + (rw - s.PAGE_WIDTH) // 2, s.PAGE_WIDTH
+            pad, header, page_top, edge = s.PADDING, LONE_HEADER, s.PAGE_TOP, 1
         else:
             px, pw = rx, rw
-            pad, header, page_top, edge = style.SPLIT_PADDING, SPLIT_HEADER, 0, 0
+            pad, header, page_top, edge = s.SPLIT_PADDING, SPLIT_HEADER, 0, 0
+        header = tuple(s.px(v) for v in header)
         left, self.width = px + pad, pw - 2 * pad
-        body_top = page_top + header[2] + BODY_GAP  # from the document's top
-        self.body_height = rh - 2 * MARGIN
+        body_top = page_top + header[2] + s.px(BODY_GAP)  # from the document's top
+        self.body_height = rh - 2 * s.px(MARGIN)
         self._follow_cursor(rh, body_top)
         top = ry - self.scroll  # where the document's top is on the screen
         dim = not (active or alone)
-        frame, moved = (rect, lone, dim), self.scroll - self._scrolled
+        frame, moved = (rect, lone, dim, self.zoom), self.scroll - self._scrolled
 
         canvas.clip(rect)
         if not full and self._frame == frame and 0 < moved < rh // 2:
@@ -371,12 +383,12 @@ class Editor:
             if lone:
                 canvas.fill(rx, ry, rw, rh, style.BACKDROP)
                 page_y = top + page_top
-                canvas.rounded(px, page_y, pw, ry + rh - page_y, style.RADIUS, style.BORDER, style.BACKDROP)
-                canvas.rounded(px + 1, page_y + 1, pw - 2, ry + rh - page_y - 2, style.RADIUS - 1,
+                canvas.rounded(px, page_y, pw, ry + rh - page_y, s.RADIUS, style.BORDER, style.BACKDROP)
+                canvas.rounded(px + 1, page_y + 1, pw - 2, ry + rh - page_y - 2, s.RADIUS - 1,
                                style.PAGE, style.BORDER)
             else:
                 canvas.fill(rx, ry, rw, rh, style.PAGE)
-            canvas.text(style.LABEL_FACE, left, top + page_top + header[0], 'DOCUMENT', style.LABEL, style.PAGE)
+            canvas.text(s.LABEL_FACE, left, top + page_top + header[0], 'DOCUMENT', style.LABEL, style.PAGE)
             canvas.fill(px + edge, top + page_top + header[2], pw - 2 * edge, 1, style.LINE)
         self._scrolled = self.scroll
         canvas.clip((rx, ry, rw, rh - edge))  # the lone page's bottom edge stays put
@@ -393,8 +405,9 @@ class Editor:
         view need drawing. page: the lone page's (x, width); its rounded
         bottom corners stay where they are."""
         rx, ry, rw, rh = rect
+        radius = self.sizes.RADIUS
         bottom = ry + rh - edge
-        limit = bottom - style.RADIUS if page else bottom  # moved part ends here
+        limit = bottom - radius if page else bottom  # moved part ends here
         canvas.shift(rx, ry, rw, limit - ry, moved)
         drawn = {}
         for key, item in self._drawn.items():
@@ -404,27 +417,29 @@ class Editor:
                 drawn[key - moved] = item  # was whole before, and still shows
         self._drawn = drawn
         if page:
-            canvas.fill(page[0] + style.RADIUS, limit - moved, page[1] - 2 * style.RADIUS,
+            canvas.fill(page[0] + radius, limit - moved, page[1] - 2 * radius,
                         bottom - limit + moved, style.PAGE)
         else:
             canvas.fill(rx, limit - moved, rw, moved, style.PAGE)
 
     def _draw_title(self, canvas, left, baseline, with_cursor, dim):
-        face = style.TITLE_FACE
+        s = self.sizes
+        face, keep = s.TITLE_FACE, s.px(12)  # keep: the cursor stays this far from the edge
+        slack = s.px(6)  # cleared around the title; more would rub out the label above
         room = self.width + 4
         cursor_x = face.width(self.title[:self.tx])
         if not self.in_title or face.width(self.title) <= room:
             self.title_shift = 0.0
-        elif cursor_x - self.title_shift > room - 12:  # slide left to keep the cursor in sight
-            self.title_shift = cursor_x - room + 12
+        elif cursor_x - self.title_shift > room - keep:  # slide left to keep the cursor in sight
+            self.title_shift = cursor_x - room + keep
         elif cursor_x < self.title_shift:
-            self.title_shift = max(0.0, cursor_x - 60)
+            self.title_shift = max(0.0, cursor_x - s.px(60))
         item = (self.title, self.tx if with_cursor else None, self.width, baseline, self.title_shift, dim)
         if self._drawn.get('title') == item:
             return
         self._drawn['title'] = item
-        canvas.fill(left - 8, baseline - face.ascent - 6, self.width + 16,
-                    face.ascent + face.descent + 12, style.PAGE)
+        canvas.fill(left - 8, baseline - face.ascent - slack, self.width + 16,
+                    face.ascent + face.descent + 2 * slack, style.PAGE)
         start, end = left - 2, left + self.width + 6
         text, colour = ((self.title, style.TITLE_DIM if dim else style.TITLE) if self.title
                         else ('Untitled', style.LINE))
@@ -434,7 +449,7 @@ class Editor:
 
     def _draw_rows(self, canvas, left, first_y, view_top, view_bottom, focused, dim):
         """The body rows that are on screen; each is redrawn only if it changed."""
-        lines, span = self.doc.lines, self.selection()
+        lines, span, sizes = self.doc.lines, self.selection(), self.sizes
         cursor = None
         if focused and not self.in_title and self.cursor_on:
             cursor = (self.cy,) + self._position()
@@ -442,7 +457,7 @@ class Editor:
         for line, text in enumerate(lines):
             starts = self._starts(line)
             level = heading_level(text)
-            height = style.ROW_STYLES[level][2]
+            height = sizes.ROW_STYLES[level][2]
             if y + height * len(starts) <= view_top:  # the whole line is above the window
                 y += height * len(starts)
                 continue
@@ -467,7 +482,9 @@ class Editor:
 
     def _draw_row(self, canvas, left, y, item):
         segment, level, first, height, cursor_x, selected, show_marks, dim = item
-        face, colour, _ = style.ROW_STYLES[level]
+        s = self.sizes
+        face, colour, _ = s.ROW_STYLES[level]
+        inset = s.px(4)  # the selection's background stops this far short of the row
         if dim:
             colour = style.TITLE_DIM if level else style.TEXT_DIM
         canvas.fill(left - 8, y, self.width + 16, height, style.PAGE)
@@ -483,11 +500,11 @@ class Editor:
                 j += 1
             run, bg = segment[i:j], style.SELECTION if chosen else style.PAGE
             if chosen:
-                canvas.fill(round(x), y + 4, round(face.width(run)) + 1, height - 8, bg)
+                canvas.fill(round(x), y + inset, round(face.width(run)) + 1, height - 2 * inset, bg)
             x = canvas.text(face, x, baseline, run, style.LABEL if i < marks else colour, bg, right)
             i = j
         if line_break:  # the selection goes on past the end of this line
-            canvas.fill(round(x), y + 4, 8, height - 8, style.SELECTION)
+            canvas.fill(round(x), y + inset, s.px(8), height - 2 * inset, style.SELECTION)
         if cursor_x is not None:
             self._cursor(canvas, min(left + cursor_x, right - 4), baseline, face)
 

@@ -4,7 +4,7 @@
 # Alt+Left and Alt+Right, and sends the same code for Ctrl+Del as for Del.
 # These lines give each combination its own xterm-style code, which keys.py
 # names. Keycodes: 103 Up, 108 Down, 106 Right, 105 Left, 102 Home,
-# 107 End, 111 Delete.
+# 107 End, 111 Delete, 12 the + key and 53 the - key (zoom).
 
 control keycode 103 = F100
 control keycode 108 = F101
@@ -21,6 +21,8 @@ shift   keycode 106 = F111
 shift   keycode 105 = F112
 shift   keycode 102 = F113
 shift   keycode 107 = F114
+control keycode 12  = F115
+control keycode 53  = F116
 
 string F100 = "\033[1;5A"
 string F101 = "\033[1;5B"
@@ -37,3 +39,5 @@ string F111 = "\033[1;2C"
 string F112 = "\033[1;2D"
 string F113 = "\033[1;2H"
 string F114 = "\033[1;2F"
+string F115 = "\033[30~"
+string F116 = "\033[31~"
