@@ -176,18 +176,17 @@ class FileList:
         for i, (kind, name, path) in enumerate(self.rows[first:first + rows]):
             row_y = top + i * row_h
             chosen = first + i == self.selected and self.naming is None
-            bg = style.SELECTED if chosen and focused else style.PAGE
-            if bg != style.PAGE:
-                canvas.rounded(x + pad - s.px(12), row_y, w - 2 * pad + s.px(24), row_h - s.px(6),
-                               s.px(8), bg, style.PAGE)
+            if chosen and focused:  # where the keys will act: a thin outline
+                canvas.box(x + pad - s.px(10), row_y, w - 2 * pad + s.px(20), row_h - s.px(6),
+                           style.MARKER)
             label, colour = name, style.TITLE if chosen else style.TEXT
             if kind == 'back':
                 label, colour = f'‹   Back to {name}', style.LABEL
             if path == self.moving:
                 label, colour = f'{name}  (moving)', style.LABEL
-            canvas.text(face, x + pad, row_y + base, label, colour, bg, right - s.px(24))
+            canvas.text(face, x + pad, row_y + base, label, colour, style.PAGE, right - s.px(24))
             if kind == 'folder':
-                canvas.text(face, right - s.px(10), row_y + base, '›', style.LABEL, bg)
+                canvas.text(face, right - s.px(10), row_y + base, '›', style.LABEL, style.PAGE)
         if self.confirm is not None:
             self._draw_confirm(canvas, rect)
 
@@ -195,10 +194,9 @@ class FileList:
         """The row where a new folder's or document's name is typed."""
         s = self.sizes
         face, base = s.LIST_FACE, s.px(27)
-        canvas.rounded(x - s.px(12), row_y, right - x + s.px(24), s.px(ROW) - s.px(6), s.px(8),
-                       style.SELECTED, style.PAGE)
-        end = canvas.text(face, x, row_y + base, f'New {self.naming[0]}:  ', style.LABEL, style.SELECTED, right)
-        end = canvas.text(face, end, row_y + base, self.naming[1], style.TITLE, style.SELECTED, right)
+        canvas.box(x - s.px(10), row_y, right - x + s.px(20), s.px(ROW) - s.px(6), style.MARKER)
+        end = canvas.text(face, x, row_y + base, f'New {self.naming[0]}:  ', style.LABEL, style.PAGE, right)
+        end = canvas.text(face, end, row_y + base, self.naming[1], style.TITLE, style.PAGE, right)
         if self.cursor_on:
             canvas.fill(round(end) + 2, row_y + base - face.ascent + 2, style.CURSOR_WIDTH,
                         face.ascent + face.descent - 2, style.TITLE)
@@ -229,10 +227,8 @@ class FileList:
         for i, label in enumerate(('Cancel', 'Delete')):
             bx = right - (2 - i) * bw - (1 - i) * gap
             chosen = self.confirm == i
-            bg = (style.DANGER if i else style.SELECTED) if chosen else style.RAISED
-            canvas.rounded(bx, by, bw, bh, 8, bg if chosen else style.LINE, style.RAISED)
-            if not chosen:
-                canvas.rounded(bx + 1, by + 1, bw - 2, bh - 2, 7, style.RAISED, style.LINE)
+            bg = style.DANGER if chosen and i else style.RAISED
+            canvas.box(bx, by, bw, bh, style.MARKER if chosen else style.LINE, bg)
             text_x = bx + (bw - card.LIST_FACE.width(label)) / 2
             canvas.text(card.LIST_FACE, text_x, by + 29, label,
                         style.TITLE if chosen else style.LABEL, bg, bx + bw)

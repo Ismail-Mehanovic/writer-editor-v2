@@ -112,19 +112,20 @@ class SettingsWindow:
         for i, name in enumerate(ROWS):
             row_y = page_y + s.px(first_row) + i * row_h
             chosen = i == self.selected
-            bg = style.SELECTED if chosen and focused else style.PAGE
-            if bg != style.PAGE:
-                canvas.rounded(left - s.px(12), row_y, right - left + s.px(24), row_h - s.px(8),
-                               s.px(8), bg, style.PAGE)
+            if chosen and focused:  # where the keys will act: a thin outline
+                canvas.box(left - s.px(10), row_y, right - left + s.px(20), row_h - s.px(8),
+                           style.MARKER)
             value, value_face = self._value(name, s)
             parts = [(value, value_face, style.TITLE if chosen else style.TEXT)]
             if chosen:  # the arrows show that Left and Right change it
                 parts = [('‹', face, style.LABEL)] + parts + [('›', face, style.LABEL)]
             width = sum(f.width(t) for t, f, _ in parts) + gap * (len(parts) - 1)
             value_x = right - round(width)
-            canvas.text(face, left, row_y + base, LABELS[name], style.LABEL, bg, value_x - gap)
+            canvas.text(face, left, row_y + base, LABELS[name], style.LABEL, style.PAGE,
+                        value_x - gap)
             for text, text_face, colour in parts:
-                value_x = canvas.text(text_face, value_x, row_y + base, text, colour, bg, right) + gap
+                value_x = canvas.text(text_face, value_x, row_y + base, text, colour,
+                                      style.PAGE, right) + gap
 
     def _value(self, name, s):
         """What a setting says now, and the font to say it in: a typeface

@@ -153,6 +153,17 @@ class Canvas:
                     self.fill(x + full - 1, row, 1, 1, edge)
                     self.fill(x + w - full, row, 1, 1, edge)
 
+    def box(self, x, y, w, h, edge, fill=None):
+        """A square box with a one-pixel outline, and a filled middle if
+        fill is given. Square corners: on a screen this coarse a rounded
+        one is a few grey pixels, which only looks smudged."""
+        if fill is not None:
+            self.fill(x, y, w, h, fill)
+        self.fill(x, y, w, 1, edge)
+        self.fill(x, y + h - 1, w, 1, edge)
+        self.fill(x, y, 1, h, edge)
+        self.fill(x + w - 1, y, 1, h, edge)
+
     def text(self, face, x, baseline, text, fg, bg, right=None, left=None):
         """Draws text on an area already painted bg, starting at x with its
         baseline at y = baseline, cut off outside x = left..right (and the
