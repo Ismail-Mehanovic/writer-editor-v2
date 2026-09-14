@@ -137,6 +137,13 @@ documents are .md files, the console font is 16x32 (80x25).
   wrap and glyph caches are keyed on the font objects. ZOOM_DEFAULT is
   0.5: the full size is too big on the panel. A new window opens at the
   size of the one it came from; the status line is never zoomed.
+- Settings (settings.py): Esc twice turns the chosen window into the
+  settings window. Two lines, Left/Right to change: the size every window
+  opens at, and the typeface (style.FAMILIES: Modern = Selawik, Classic =
+  PT Serif, Mono = JetBrains Mono, each with a size tweak so they look
+  equally big). The choice is one for the whole editor (style.FONT,
+  style.use_font) and is kept in ~/writing/.settings.json. The window
+  hands events to Writer.settings_key, the way the file list does.
 - File list (filelist.py): folders under ~/writing, kept minimal (no
   icons; folders marked ›). Ctrl+F new folder, Ctrl+D new empty document
   (not opened), breadcrumbs in the status line, Tab to move (Enter on a folder or "Back to ..." drops it),

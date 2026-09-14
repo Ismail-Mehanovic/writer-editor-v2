@@ -211,13 +211,15 @@ class FileList:
     def _draw_confirm(self, canvas, rect):
         """The card that asks before deleting: Cancel or Delete."""
         x, y, w, h = rect
+        card = style.sizes(1.0)  # the question keeps its size, whatever the window's zoom
         kind, name, _ = self.rows[self.selected]
         cw, ch = min(560, w - 40), 196
         cx, cy = x + (w - cw) // 2, y + (h - ch) // 2
         canvas.rounded(cx, cy, cw, ch, 12, style.BORDER, style.PAGE)
         canvas.rounded(cx + 1, cy + 1, cw - 2, ch - 2, 11, style.RAISED, style.BORDER)
         right = cx + cw - 28
-        canvas.text(style.ROW_STYLES[3][0], cx + 28, cy + 56, f'Delete “{name}”?', style.TITLE, style.RAISED, right)
+        canvas.text(card.ROW_STYLES[3][0], cx + 28, cy + 56, f'Delete “{name}”?',
+                    style.TITLE, style.RAISED, right)
         note = ('The folder and everything in it go to the trash.' if kind == 'folder'
                 else 'It goes to the trash folder.')
         canvas.text(style.STATUS_FACE, cx + 28, cy + 88, note, style.LABEL, style.RAISED, right)
@@ -231,6 +233,6 @@ class FileList:
             canvas.rounded(bx, by, bw, bh, 8, bg if chosen else style.LINE, style.RAISED)
             if not chosen:
                 canvas.rounded(bx + 1, by + 1, bw - 2, bh - 2, 7, style.RAISED, style.LINE)
-            text_x = bx + (bw - style.LIST_FACE.width(label)) / 2
-            canvas.text(style.LIST_FACE, text_x, by + 29, label,
+            text_x = bx + (bw - card.LIST_FACE.width(label)) / 2
+            canvas.text(card.LIST_FACE, text_x, by + 29, label,
                         style.TITLE if chosen else style.LABEL, bg, bx + bw)

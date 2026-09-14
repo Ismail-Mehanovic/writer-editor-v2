@@ -41,7 +41,6 @@ class Face:
     def __init__(self, path, size, spacing=0.0):
         if path not in _fonts:
             _fonts[path] = ttf.Font(path)
-        self.path = path
         self.font, self.size, self.spacing = _fonts[path], size, spacing
         scale = size / self.font.units
         self.ascent = round(self.font.ascent * scale)
@@ -60,10 +59,6 @@ class Face:
         if char not in self._glyphs:
             self._glyphs[char] = self.font.render(char, self.size)
         return self._glyphs[char]
-
-    def scaled(self, zoom):
-        """The same font at zoom times this size, for a zoomed window."""
-        return self if zoom == 1 else Face(self.path, self.size * zoom, self.spacing * zoom)
 
 
 class Canvas:

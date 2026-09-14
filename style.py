@@ -1,8 +1,9 @@
 """The look: colours, fonts and sizes, taken from the design screenshots.
 
-Everything is drawn in pixels (render.py) with the Selawik font in fonts/.
-The numbers here are the full size; each window is drawn at its own zoom
-(Ctrl+plus, Ctrl+minus), and sizes(zoom) gives them all scaled to it.
+Everything is drawn in pixels (render.py) with the fonts in fonts/. The
+numbers here are the full size in the modern typeface; sizes(zoom) gives
+them all in the typeface chosen in the settings, scaled to one window's
+zoom (Ctrl+plus, Ctrl+minus).
 """
 
 import os
@@ -39,25 +40,45 @@ def _face(name, size, spacing=0.0):
     return Face(os.path.join(FONTS, name), size, spacing)
 
 
-LABEL_FACE = _face('Selawik-Semibold.ttf', 15, spacing=1.6)
-TITLE_FACE = _face('Selawik-Bold.ttf', 44)
-BODY_FACE = _face('Selawik-Regular.ttf', 24)
-LIST_FACE = _face('Selawik-Regular.ttf', 22)
-STATUS_FACE = _face('Selawik-Regular.ttf', 16)
+STATUS_FACE = _face('Selawik-Regular.ttf', 16)  # the bottom line: never changes
 
-# Body rows: (font, colour, row height) for plain text and # / ## / ###.
-ROW_STYLES = {
-    0: (BODY_FACE, TEXT, 38),
-    1: (_face('Selawik-Bold.ttf', 34), TITLE, 54),
-    2: (_face('Selawik-Bold.ttf', 29), TITLE, 48),
-    3: (_face('Selawik-Semibold.ttf', 26), TITLE, 42),
+# The typefaces the settings window offers: the modern one from the design,
+# a classical serif, and a monospace whose square letters suit the panel's
+# coarse pixels. (shown as, regular, semibold, bold, size tweak: the mono
+# one is taller and much wider, so it is drawn a little smaller.)
+FAMILIES = {
+    'modern': ('Modern', 'Selawik-Regular.ttf', 'Selawik-Semibold.ttf',
+               'Selawik-Bold.ttf', 1.0),
+    'classic': ('Classic', 'PT_Serif-Web-Regular.ttf', 'PT_Serif-Web-Bold.ttf',
+                'PT_Serif-Web-Bold.ttf', 1.0),
+    'mono': ('Mono', 'JetBrainsMono-Regular.ttf', 'JetBrainsMono-SemiBold.ttf',
+             'JetBrainsMono-Bold.ttf', 0.87),
+}
+FONT_ORDER = ('modern', 'classic', 'mono')
+FONT_DEFAULT = 'modern'
+FONT = FONT_DEFAULT  # the one in use everywhere; the settings window sets it
+
+LABEL_SIZE, LABEL_SPACING = 15, 1.6  # "DOCUMENT", "SETTINGS"
+LABEL_MIN = 10               # smaller than this the label turns to mush
+TITLE_SIZE, BODY_SIZE, LIST_SIZE = 44, 24, 22
+BODY_ROW = 38                # the height of a plain line of text
+HEADINGS = {                 # '#', '##', '###': weight, text size, row height
+    1: ('bold', 34, 54),
+    2: ('bold', 29, 48),
+    3: ('semibold', 26, 42),
 }
 
 # Zoom. Every window has its own (Ctrl+plus, Ctrl+minus): the full size
 # above is a lot on a 10 inch panel, so a window starts at ZOOM_DEFAULT.
 ZOOM_STEPS = (0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0)
 ZOOM_DEFAULT = 0.5
-LABEL_MIN = 10  # "DOCUMENT" is small already: shrunk further it turns to mush
+
+
+def use_font(name):
+    """Draws everything in this typeface from now on. It is one choice for
+    the whole editor, so it lives here and not in each window."""
+    global FONT
+    FONT = name if name in FAMILIES else FONT_DEFAULT
 
 
 def zoom_step(zoom, direction):
@@ -68,23 +89,32 @@ def zoom_step(zoom, direction):
 
 
 class Sizes:
-    """Every measurement at one zoom: the fonts, the page, the gaps around
-    the text. Made once per zoom and then kept for good (see sizes), because
-    the remembered line wraps and letter pictures are keyed on the font
-    objects in here."""
+    """Every measurement in one typeface at one zoom: the fonts, the page,
+    the gaps around the text. Made once for each pair and then kept for good
+    (see sizes), because the remembered line wraps and letter pictures are
+    keyed on the font objects in here."""
 
-    def __init__(self, zoom):
-        self.zoom = zoom
+    def __init__(self, zoom, font):
+        self.zoom, self.font = zoom, font
+        _, regular, semibold, bold, tweak = FAMILIES[font]
+        self.files = {'regular': regular, 'semibold': semibold, 'bold': bold}
+        self.scale = zoom * tweak  # letters follow the typeface's tweak, gaps don't
         self.PAGE_WIDTH = self.px(PAGE_WIDTH)
         self.PAGE_TOP = self.px(PAGE_TOP)
         self.RADIUS = self.px(RADIUS)
         self.PADDING = self.px(PADDING)
         self.SPLIT_PADDING = self.px(SPLIT_PADDING)
-        self.LABEL_FACE = LABEL_FACE.scaled(max(zoom, LABEL_MIN / LABEL_FACE.size))
-        self.TITLE_FACE = TITLE_FACE.scaled(zoom)
-        self.LIST_FACE = LIST_FACE.scaled(zoom)
-        self.ROW_STYLES = {level: (face.scaled(zoom), colour, self.px(height))
-                           for level, (face, colour, height) in ROW_STYLES.items()}
+        self.LABEL_FACE = self.face('semibold', max(LABEL_SIZE * self.scale, LABEL_MIN),
+                                    LABEL_SPACING * self.scale)
+        self.TITLE_FACE = self.face('bold', TITLE_SIZE * self.scale)
+        self.BODY_FACE = self.face('regular', BODY_SIZE * self.scale)
+        self.LIST_FACE = self.face('regular', LIST_SIZE * self.scale)
+        self.ROW_STYLES = {0: (self.BODY_FACE, TEXT, self.px(BODY_ROW))}
+        for level, (weight, size, height) in HEADINGS.items():
+            self.ROW_STYLES[level] = (self.face(weight, size * self.scale), TITLE, self.px(height))
+
+    def face(self, weight, size, spacing=0.0):
+        return _face(self.files[weight], size, spacing)
 
     def px(self, length):
         """A length from the full-size design, at this zoom (never nothing)."""
@@ -94,8 +124,10 @@ class Sizes:
 _sizes = {}
 
 
-def sizes(zoom):
-    """The Sizes for zoom: the same object every time it is asked for."""
-    if zoom not in _sizes:
-        _sizes[zoom] = Sizes(zoom)
-    return _sizes[zoom]
+def sizes(zoom, font=None):
+    """The Sizes for zoom in the typeface in use, or in a named one: the
+    same object every time it is asked for."""
+    key = (zoom, font or FONT)
+    if key not in _sizes:
+        _sizes[key] = Sizes(*key)
+    return _sizes[key]

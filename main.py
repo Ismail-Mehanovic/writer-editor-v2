@@ -7,7 +7,8 @@ pixels with a smooth font (render.py, style.py).
     Alt+arrow     open a new document beside the current window
     Ctrl+plus     bigger text in this window    Ctrl+minus   smaller
     Esc           select mode: arrows pick a window, Backspace closes it,
-                  any other key goes back to typing
+                  Esc again turns it into the settings, any other key
+                  goes back to typing
     Ctrl+Space    shell, and back       Ctrl+Del   sleep / wake
     Ctrl+Q        save everything and quit
 
@@ -30,9 +31,11 @@ import document
 import keys
 import layout
 import render
+import settings as settings_file
 import style
 from editor import Editor
 from filelist import FileList
+from settings import SettingsWindow
 
 QUIT_KEY = 'ctrl-q'
 SELECT_KEY = 'esc'
@@ -147,6 +150,7 @@ def do_shutdown(screen):
 class Writer:
     def __init__(self, screen, canvas, folder):
         self.screen, self.canvas, self.folder = screen, canvas, folder
+        self.settings = settings_file.Settings(folder)
         self.layout = layout.Layout(self.new_editor())
         self.selecting = False
         self.message = ''
@@ -156,8 +160,7 @@ class Writer:
     def new_editor(self, path=None, like=None):
         """A window for a document. like: a window whose text size it takes."""
         editor = Editor(document.Document(path, folder=self.folder))
-        if like is not None:
-            editor.zoom = like.zoom
+        editor.zoom = like.zoom if like is not None else self.settings.zoom
         return editor
 
     def editors(self):
@@ -206,7 +209,9 @@ class Writer:
     def blinking(self):
         """True while the focused window shows a text cursor."""
         focus = self.layout.focus
-        return not self.selecting and (isinstance(focus, Editor) or focus.naming is not None)
+        if self.selecting or isinstance(focus, SettingsWindow):
+            return False
+        return isinstance(focus, Editor) or focus.naming is not None
 
     def wake_cursor(self):
         """After a key the cursor shows at once, and blinks again later."""
@@ -262,6 +267,8 @@ class Writer:
 
         if isinstance(focus, FileList):
             return self.list_key(focus, key)
+        if isinstance(focus, SettingsWindow):
+            return self.settings_key(focus, key)
         was_in_title = focus.in_title
         try:
             self.message = focus.handle(key) or ''
@@ -318,6 +325,27 @@ class Writer:
             return False
         return True  # other windows may show the change
 
+    def settings_key(self, window, key):
+        """Hands a key to the settings window and acts on what it reports.
+        A change is for the whole editor, so everything is redrawn."""
+        event = window.handle(key)
+        if not event:
+            return False
+        if event[0] == 'close':
+            self.save()
+            if not self.layout.close(window):  # the last one: back to a document
+                self.layout.swap(window, self.new_editor())
+            return True
+        if event[0] == 'zoom':
+            for open_window in self.layout.windows():
+                open_window.zoom = event[1]
+            self.message = f'Every window is now {round(event[1] * 100)}%'
+        else:
+            style.use_font(event[1])
+            self.message = f'Typeface: {style.FAMILIES[event[1]][0]}'
+        self.message = self.settings.save() or self.message
+        return True
+
     def relocate(self, old, new):
         """Open documents that were moved (or sit in a moved folder) keep
         saving to their new place."""
@@ -348,6 +376,12 @@ class Writer:
             self.save()
             if not self.layout.close(closing):  # the last one: start afresh
                 self.layout.swap(closing, self.new_editor(like=closing))
+        elif key == SELECT_KEY:  # Esc again: this window becomes the settings
+            self.save()
+            window = SettingsWindow(self.settings)
+            window.zoom = self.layout.focus.zoom
+            self.layout.swap(self.layout.focus, window)
+            self.selecting = False
         else:
             self.selecting = False
         return True
@@ -387,9 +421,12 @@ class Writer:
         canvas, focus = self.canvas, self.layout.focus
         crumbs, hint = (), ''
         if self.selecting:
-            text = 'Arrows: pick a window    Backspace: close it    other keys: back to typing'
+            text = ('Arrows: pick a window    Esc: settings    Backspace: close it'
+                    '    other keys: back to typing')
         elif isinstance(focus, FileList):
             text, crumbs, hint = self.message, tuple(focus.crumbs()), focus.status()
+        elif isinstance(focus, SettingsWindow):
+            text, hint = self.message, focus.status()
         else:
             if not any(focus.doc.lines):
                 hint = HINT  # the keys show until something is written
