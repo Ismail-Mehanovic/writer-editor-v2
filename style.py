@@ -12,20 +12,24 @@ from render import Face
 
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts')
 
-BACKDROP = (7, 11, 22)       # around the page
-PAGE = (19, 27, 46)          # the page, and every window beside others
-BORDER = (34, 44, 68)        # the page's edge
-LINE = (45, 58, 87)          # the line under a title, lines between windows
-LABEL = (139, 155, 180)      # "DOCUMENT", the status line, heading marks
-TEXT = (216, 222, 233)       # body text
+# Neutral greys, all a long way down from white: blue light at night is
+# what makes a screen hurt to look at, so nothing here is tinted, and only
+# the text itself is bright. Each grey is a multiple of 8, which is what
+# the screen's 16-bit colour can show without a tint creeping back in.
+BACKDROP = (8, 8, 8)         # around the page
+PAGE = (24, 24, 24)          # the page, and every window beside others
+RAISED = (32, 32, 32)        # a card over a window (the delete question)
+BORDER = (40, 40, 40)        # the page's edge
+SELECTED = (48, 48, 48)      # the chosen document in a file list
+LINE = (56, 56, 56)          # the line under a title, lines between windows
+SELECTION = (72, 72, 72)     # behind selected text
+LABEL = (120, 120, 120)      # "DOCUMENT", the status line, heading marks
+TEXT_DIM = (136, 136, 136)   # body text in a window that isn't in use
+ACCENT = (144, 144, 144)     # the select-mode frame
+TITLE_DIM = (176, 176, 176)  # titles and headings in a window not in use
+TEXT = (208, 208, 208)       # body text
 TITLE = (255, 255, 255)      # titles, headings, the cursor
-TEXT_DIM = (150, 158, 174)   # body text in a window that isn't in use
-TITLE_DIM = (196, 202, 214)  # titles and headings there
-SELECTED = (34, 48, 77)      # the chosen document in a file list
-ACCENT = (122, 162, 247)     # the select-mode frame, "New folder"
-RAISED = (26, 37, 62)        # a card over a window (the delete question)
-SELECTION = (44, 70, 118)    # behind selected text
-DANGER = (196, 64, 76)       # the Delete button, when chosen
+DANGER = (168, 56, 56)       # the Delete button, when chosen
 
 PAGE_WIDTH = 960             # a lone document is a page this wide, centred
 PAGE_TOP = 28                # gap above the page
