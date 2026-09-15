@@ -12,24 +12,24 @@ from render import Face
 
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts')
 
-# Neutral greys, all a long way down from white: blue light at night is
-# what makes a screen hurt to look at, so nothing here is tinted, and only
-# the text itself is bright. Each grey is a multiple of 8, which is what
-# the screen's 16-bit colour can show without a tint creeping back in.
-BACKDROP = (8, 8, 8)         # around the page
-PAGE = (24, 24, 24)          # the page, and every window beside others
-RAISED = (32, 32, 32)        # a card over a window (the delete question)
-BORDER = (40, 40, 40)        # the page's edge
-MARKER = (120, 120, 120)     # the outline round the row the keys act on
-LINE = (56, 56, 56)          # the line under a title, lines between windows
-SELECTION = (72, 72, 72)     # behind selected text
-LABEL = (120, 120, 120)      # "DOCUMENT", the status line, heading marks
-TEXT_DIM = (136, 136, 136)   # body text in a window that isn't in use
-ACCENT = (144, 144, 144)     # the select-mode frame
-TITLE_DIM = (176, 176, 176)  # titles and headings in a window not in use
-TEXT = (208, 208, 208)       # body text
-TITLE = (255, 255, 255)      # titles, headings, the cursor
-DANGER = (168, 56, 56)       # the Delete button, when chosen
+# Warm and soft, with no blue in it anywhere: a page the colour of paper
+# in a dim room, and text the colour of old ivory rather than white. The
+# step from the page to the text is kept short on purpose -- that is what
+# makes it soft to look at -- and everything else sits between the two.
+BACKDROP = (26, 25, 22)      # around the page
+PAGE = (42, 41, 36)          # the page, and every window beside others
+RAISED = (52, 50, 45)        # a card over a window (the delete question)
+BORDER = (58, 56, 50)        # the page's edge
+LINE = (72, 69, 62)          # the line under a title, lines between windows
+SELECTION = (86, 82, 73)     # behind selected text
+LABEL = (138, 132, 118)      # "DOCUMENT", the status line, heading marks
+TEXT_DIM = (150, 144, 130)   # body text in a window that isn't in use
+MARKER = (152, 146, 130)     # the outline round the row the keys act on
+ACCENT = (168, 160, 143)     # the select-mode frame
+TITLE_DIM = (186, 180, 165)  # titles and headings in a window not in use
+TEXT = (214, 209, 193)       # body text
+TITLE = (236, 232, 218)      # titles, headings, the cursor
+DANGER = (188, 96, 78)       # the Delete button, when chosen
 
 PAGE_WIDTH = 960             # a lone document is a page this wide, centred
 PAGE_TOP = 28                # gap above the page
